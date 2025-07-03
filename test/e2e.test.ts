@@ -149,7 +149,7 @@ describe('End-to-End Integration Tests', () => {
       expect(result.results).toHaveLength(4);
       expect(mockLogger.warn).toHaveBeenCalledWith('DRY RUN MODE - No actual purging will occur');
       expect(mockLogger.info).toHaveBeenCalledWith('[prod-web] Would purge keys: global, always, major-release-v3.0.0, ui-overhaul, api-redesign, cache-restructure');
-      expect(mockLogger.info).toHaveBeenCalledWith('Dry run completed. Would have attempted to purge 4 services.');
+      expect(mockLogger.info).toHaveBeenCalledWith('Dry run completed. Would have attempted to purge keys from 4 services.');
       expect(mockFetch).not.toHaveBeenCalled();
     });
 

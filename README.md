@@ -10,7 +10,8 @@ A powerful command-line tool for purging Fastly cache by surrogate keys across m
 - �🎯 **Direct service override**: Use `--services` to specify service IDs directly
 - 📝 **Multiple key support**: Purge multiple cache keys in a single command
 - 🔄 **Batch purging**: Purge multiple services simultaneously
-- 🧪 **Dry run mode**: Preview operations without making changes
+- � **Complete purge**: Use `--all` flag to purge entire cache for services
+- �🧪 **Dry run mode**: Preview operations without making changes
 - 📝 **Verbose logging**: Detailed operation feedback
 - ⚡ **Fast execution**: Concurrent API calls with proper error handling
 - 🛡️ **Error resilience**: Continues operation even if some services fail
@@ -137,6 +138,9 @@ bleurgh user-123
 # Purge multiple keys at once
 bleurgh user-123 product-456 article-789
 
+# Purge ALL cache for services (ignores keys and defaults)
+bleurgh --all
+
 # Purge cache in production environment
 bleurgh product-456 --env prod
 
@@ -178,20 +182,24 @@ export FASTLY_DEFAULT_KEYS="global,always"
 # Dry run with multiple keys
 bleurgh user-123 product-456 article-789 --dry-run
 
+# Purge ALL cache for services
+bleurgh --all --env prod
+
 # Verbose output for debugging
 bleurgh user-123 --verbose
 
 # Combine options
 bleurgh key1 key2 key3 --env prod --dry-run --verbose
 
-# Emergency purge with service override
-bleurgh critical-key-1 critical-key-2 --services emergency-svc --verbose
+# Emergency complete cache purge
+bleurgh --all --services emergency-svc --verbose
 ```
 
 ### Command Options
 
 | Option | Alias | Description | Default |
 |--------|-------|-------------|---------|
+| `--all` | | Purge ALL cache for services (ignores keys and defaults) | `false` |
 | `--env` | `-e` | Target environment (dev\|test\|prod) | `dev` |
 | `--services` | `-s` | Comma-separated service IDs (overrides environment) | |
 | `--verbose` | `-v` | Enable verbose logging | `false` |
@@ -311,8 +319,14 @@ bleurgh feature-xyz --env test
 # Production deployment with specific services
 bleurgh feature-xyz --services prod-svc-1,prod-svc-2
 
-# Emergency purge with override (multiple critical keys)
+# Emergency complete cache clear
+bleurgh --all --services emergency-svc --verbose
+
+# Emergency purge with specific keys
 bleurgh critical-fix urgent-update hotfix-123 --services emergency-svc --verbose
+
+# Complete cache refresh for maintenance
+bleurgh --all --env prod --dry-run
 
 # Mixed keys - user IDs, content IDs, and feature flags
 bleurgh user-123 456789 feature-new-ui product-abc --env prod
@@ -346,6 +360,14 @@ bleurgh release-v2.1.0 api-v2 frontend-v2 --env prod --verbose
   env:
     FASTLY_TOKEN: ${{ secrets.FASTLY_TOKEN }}
     FASTLY_PROD_SERVICE_IDS: ${{ secrets.FASTLY_PROD_SERVICE_IDS }}
+
+# Complete cache flush for major deployments
+- name: Complete Cache Flush
+  run: |
+    npx bleurgh --all --env prod
+  env:
+    FASTLY_TOKEN: ${{ secrets.FASTLY_TOKEN }}
+    FASTLY_PROD_SERVICE_IDS: ${{ secrets.FASTLY_PROD_SERVICE_IDS }}
 ```
 
 ### Docker Usage
@@ -366,6 +388,12 @@ docker run --rm \
 docker run --rm \
   -e FASTLY_TOKEN="your-token" \
   your-image user-123 --services service1,service2
+
+# Complete cache purge
+docker run --rm \
+  -e FASTLY_TOKEN="your-token" \
+  -e PROD_SERVICE_IDS="service1,service2" \
+  your-image --all --env prod
 ```
 
 </details>
@@ -482,6 +510,12 @@ This tool uses the [Fastly Purge API](https://docs.fastly.com/en/guides/purging#
 POST https://api.fastly.com/service/{service_id}/purge
 ```
 
+For the `--all` flag, it uses the purge all endpoint:
+
+```
+POST https://api.fastly.com/service/{service_id}/purge_all
+```
+
 ### Environment Variables
 
 | Variable | Required | Description | Example |
@@ -546,6 +580,15 @@ The CLI automatically detects and prevents:
 MIT
 
 ## Changelog
+
+### v1.2.0
+- **NEW**: Complete cache purge with `--all` flag - purges entire cache for services without requiring specific keys
+- **NEW**: Enhanced CLI validation - prevents using `--all` with specific keys for safety
+- **NEW**: Updated help documentation to include complete cache purge examples
+- **IMPROVED**: Better error messages for invalid flag combinations
+- **IMPROVED**: Enhanced logging to differentiate between key-specific and complete purges
+- **TECHNICAL**: Added comprehensive test coverage for new `--all` functionality
+- **TECHNICAL**: Refactored core purge logic for better maintainability and reduced complexity
 
 ### v1.1.0
 - **NEW**: Multiple keys support - purge multiple cache keys in a single command

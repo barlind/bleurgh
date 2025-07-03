@@ -24,6 +24,7 @@ interface CliArgs {
   force?: boolean;
   help?: boolean;
   'help-advanced'?: boolean;
+  all?: boolean;
 }
 
 // Enhanced logging with colorized output
@@ -84,6 +85,11 @@ const argv = yargs(hideBin(process.argv))
     default: false,
     describe: 'Show comprehensive help documentation'
   })
+  .option('all', {
+    type: 'boolean',
+    default: false,
+    describe: 'Purge all cache for the service (ignores keys and defaults)'
+  })
   .help(false) // Disable automatic help to use our contextual help
   .version()
   .parseSync() as unknown as CliArgs;
@@ -108,10 +114,16 @@ async function main() {
       return;
     }
 
-    // Regular purge operation - validate user keys
+    // Regular purge operation - validate user keys or --all flag
     const userKeys = argv._.map(key => String(key)).filter(key => key.length > 0);
     
-    if (userKeys.length === 0) {
+    // Check if --all flag is used
+    if (argv.all) {
+      if (userKeys.length > 0) {
+        log.error('Cannot use --all flag with specific keys. Use either --all or provide specific keys.');
+        process.exit(1);
+      }
+    } else if (userKeys.length === 0) {
       console.log(generateContextualHelp());
       process.exit(1);
     }
@@ -120,7 +132,8 @@ async function main() {
       env: argv.env,
       services: argv.services,
       verbose: argv.verbose,
-      dryRun: argv['dry-run']
+      dryRun: argv['dry-run'],
+      all: argv.all
     };
 
     const result = await executePurge(userKeys, options, log);

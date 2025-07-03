@@ -1,4 +1,4 @@
-import { getServiceIds, getDefaultKeys, purgeService, executePurge, Logger } from '../src/core';
+import { getServiceIds, getDefaultKeys, purgeService, executePurge, Logger, purgeAllService } from '../src/core';
 
 // Mock fetch globally
 global.fetch = jest.fn();
@@ -274,6 +274,92 @@ describe('Core Logic Tests', () => {
     });
   });
 
+  describe('purgeAllService', () => {
+    const mockFetch = global.fetch as jest.Mock;
+
+    test('should return dry-run-all result when dryRun is true', async () => {
+      const result = await purgeAllService('test-service', true);
+      expect(result).toEqual({
+        status: 'dry-run-all',
+        service_id: 'test-service'
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    test('should throw error when FASTLY_TOKEN is not provided', async () => {
+      await expect(purgeAllService('test-service')).rejects.toThrow('FASTLY_TOKEN is required');
+    });
+
+    test('should use provided fastlyToken parameter', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-all-123' })
+      });
+
+      await purgeAllService('test-service', false, 'custom-token');
+      
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/service/test-service/purge_all',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Fastly-Key': 'custom-token'
+          })
+        })
+      );
+    });
+
+    test('should make correct API request for purge all', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-all-789' })
+      });
+
+      await purgeAllService('service-123');
+      
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/service/service-123/purge_all',
+        {
+          method: 'POST',
+          headers: {
+            'Fastly-Key': 'test-token',
+            'Accept': 'application/json',
+            'User-Agent': 'bleurgh/1.1.0'
+          }
+        }
+      );
+    });
+
+    test('should return successful result with service_id', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-all-abc' })
+      });
+
+      const result = await purgeAllService('service-456');
+      expect(result).toEqual({
+        status: 'ok',
+        id: 'purge-all-abc',
+        service_id: 'service-456'
+      });
+    });
+
+    test('should handle HTTP errors for purge all', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: () => Promise.resolve('Invalid token')
+      });
+
+      await expect(purgeAllService('service-789')).rejects.toThrow(
+        'Service service-789: HTTP 403: Forbidden - Invalid token'
+      );
+    });
+  });
+
   describe('executePurge', () => {
     const mockLogger: Logger = {
       info: jest.fn(),
@@ -436,7 +522,7 @@ describe('Core Logic Tests', () => {
       
       expect(mockLogger.info).toHaveBeenCalledWith('[service1] Would purge keys: global, always, user-key');
       expect(mockLogger.info).toHaveBeenCalledWith('[service2] Would purge keys: global, always, user-key');
-      expect(mockLogger.info).toHaveBeenCalledWith('Dry run completed. Would have attempted to purge 2 services.');
+      expect(mockLogger.info).toHaveBeenCalledWith('Dry run completed. Would have attempted to purge keys from 2 services.');
       
       // Ensure no actual fetch calls were made
       expect(global.fetch).not.toHaveBeenCalled();
@@ -494,6 +580,90 @@ describe('Core Logic Tests', () => {
 
       // Clean up
       delete process.env.FASTLY_DEFAULT_KEYS;
+    });
+
+    test('should throw error when --all flag is used with user keys', async () => {
+      await expect(executePurge(['user-key'], { env: 'dev', all: true }, mockLogger)).rejects.toThrow(
+        'Cannot use --all flag with specific keys'
+      );
+    });
+
+    test('should throw error when no keys provided and --all flag is false', async () => {
+      await expect(executePurge([], { env: 'dev', all: false }, mockLogger)).rejects.toThrow(
+        'At least one surrogate key is required (or use --all flag)'
+      );
+    });
+
+    test('should handle --all flag successfully', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-all-success' })
+      });
+
+      const result = await executePurge([], { env: 'dev', all: true }, mockLogger);
+
+      expect(result.success).toBe(true);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ serviceId: 'service1', success: true });
+      expect(result.results[1]).toEqual({ serviceId: 'service2', success: true });
+      
+      expect(mockLogger.info).toHaveBeenCalledWith('Operation: Purge ALL cache for services');
+      expect(mockLogger.success).toHaveBeenCalledWith('[service1] Purged ALL cache successfully (ID: purge-all-success)');
+      expect(mockLogger.success).toHaveBeenCalledWith('[service2] Purged ALL cache successfully (ID: purge-all-success)');
+      expect(mockLogger.info).toHaveBeenCalledWith('Purge completed: 2/2 services successful');
+      
+      // Verify the correct API endpoint was called
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/service/service1/purge_all',
+        expect.any(Object)
+      );
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/service/service2/purge_all',
+        expect.any(Object)
+      );
+    });
+
+    test('should handle --all flag with dry run', async () => {
+      const result = await executePurge([], { env: 'dev', all: true, dryRun: true }, mockLogger);
+
+      expect(result.success).toBe(true);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ serviceId: 'service1', success: true });
+      expect(result.results[1]).toEqual({ serviceId: 'service2', success: true });
+      
+      expect(mockLogger.info).toHaveBeenCalledWith('Operation: Purge ALL cache for services');
+      expect(mockLogger.warn).toHaveBeenCalledWith('DRY RUN MODE - No actual purging will occur');
+      expect(mockLogger.info).toHaveBeenCalledWith('[service1] Would purge ALL cache');
+      expect(mockLogger.info).toHaveBeenCalledWith('[service2] Would purge ALL cache');
+      expect(mockLogger.info).toHaveBeenCalledWith('Dry run completed. Would have attempted to purge ALL cache for 2 services.');
+      
+      // Ensure no actual fetch calls were made
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    test('should handle --all flag with failed purges', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockRejectedValue(new Error('Service error for purge all'));
+
+      const result = await executePurge([], { env: 'dev', all: true }, mockLogger);
+
+      expect(result.success).toBe(false);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ 
+        serviceId: 'service1', 
+        success: false, 
+        error: 'Error: Service service1: Service error for purge all' 
+      });
+      expect(result.results[1]).toEqual({ 
+        serviceId: 'service2', 
+        success: false, 
+        error: 'Error: Service service2: Service error for purge all' 
+      });
+      
+      expect(mockLogger.error).toHaveBeenCalledWith('[service1] Error: Service service1: Service error for purge all');
+      expect(mockLogger.error).toHaveBeenCalledWith('[service2] Error: Service service2: Service error for purge all');
+      expect(mockLogger.info).toHaveBeenCalledWith('Purge completed: 0/2 services successful');
     });
   });
 });

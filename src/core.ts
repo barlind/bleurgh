@@ -11,6 +11,7 @@ export interface PurgeOptions {
     services?: string;
     verbose?: boolean;
     dryRun?: boolean;
+    all?: boolean;
 }
 
 export interface Logger {
@@ -122,7 +123,7 @@ export const getServiceDisplayName = (serviceId: string, serviceNames: string[],
     return serviceId;
 };
 
-// Main purge function
+// Main purge function for surrogate keys
 export async function purgeService(
     serviceId: string,
     keys: string[],
@@ -173,46 +174,145 @@ export async function purgeService(
     }
 }
 
+// Purge all cache for a service
+export async function purgeAllService(
+    serviceId: string,
+    dryRun = false,
+    fastlyToken?: string
+): Promise<PurgeResult> {
+    const url = `https://api.fastly.com/service/${serviceId}/purge_all`;
+
+    if (dryRun) {
+        return {
+            status: 'dry-run-all',
+            service_id: serviceId
+        };
+    }
+
+    const token = fastlyToken ?? process.env.FASTLY_TOKEN;
+    if (!token) {
+        throw new Error('FASTLY_TOKEN is required');
+    }
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Fastly-Key': token,
+                'Accept': 'application/json',
+                'User-Agent': 'bleurgh/1.1.0'
+            }
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            const errorSuffix = errorText ? ` - ${errorText}` : '';
+            throw new Error(`HTTP ${response.status}: ${response.statusText}${errorSuffix}`);
+        }
+
+        const result = await response.json() as PurgeResult;
+        return {
+            ...result,
+            service_id: serviceId
+        };
+    } catch (error) {
+        throw new Error(`Service ${serviceId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+
 // Main purge orchestration function
 export async function executePurge(
     userKeys: string[],
     options: PurgeOptions,
     logger: Logger
 ): Promise<{ success: boolean; results: Array<{ serviceId: string; success: boolean; error?: string }> }> {
-    if (userKeys.length === 0) {
-        throw new Error('At least one surrogate key is required');
+    // Validate input parameters
+    if (options.all && userKeys.length > 0) {
+        throw new Error('Cannot use --all flag with specific keys');
+    }
+    
+    if (!options.all && userKeys.length === 0) {
+        throw new Error('At least one surrogate key is required (or use --all flag)');
     }
 
-    // Get service IDs - this will throw if not configured and no override provided
+    // Get service configuration
     const serviceIds = getServiceIds(options.env, options.services);
     const serviceSource = options.services ? 'command line --services' : `environment variables for ${options.env}`;
-
-    // Get service names for display (optional)
     const serviceNames = options.services ? [] : getServiceNames(options.env);
 
-    const defaultKeys = getDefaultKeys();
-    const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...userKeys] : userKeys;
+    // Log operation details
+    logOperationDetails(logger, options, serviceIds, serviceSource, serviceNames, userKeys);
 
+    // Execute purge operations
+    const results = await executePurgeOperations(serviceIds, userKeys, options);
+
+    // Process and log results
+    return processResults(results, serviceIds, options, logger, userKeys);
+}
+
+// Helper function to log operation details
+function logOperationDetails(
+    logger: Logger,
+    options: PurgeOptions,
+    serviceIds: string[],
+    serviceSource: string,
+    serviceNames: string[],
+    userKeys: string[]
+): void {
     logger.info(`Target environment: ${options.env}`);
     logger.info(`Service IDs (from ${serviceSource}): ${serviceIds.join(', ')}`);
+    
     if (serviceNames.length > 0) {
         const displayNames = serviceIds.map(id => getServiceDisplayName(id, serviceNames, serviceIds));
         logger.info(`Service names: ${displayNames.join(', ')}`);
     }
-    logger.info(`User keys: ${userKeys.join(', ')}`);
-    if (defaultKeys.length > 0) {
-        logger.info(`Default keys: ${defaultKeys.join(', ')}`);
-    }
-    logger.info(`All keys to purge: ${allKeys.join(', ')}`);
 
+    if (options.all) {
+        logger.info(`Operation: Purge ALL cache for services`);
+    } else {
+        const defaultKeys = getDefaultKeys();
+        const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...userKeys] : userKeys;
+        
+        logger.info(`User keys: ${userKeys.join(', ')}`);
+        if (defaultKeys.length > 0) {
+            logger.info(`Default keys: ${defaultKeys.join(', ')}`);
+        }
+        logger.info(`All keys to purge: ${allKeys.join(', ')}`);
+    }
+    
     if (options.dryRun) {
         logger.warn('DRY RUN MODE - No actual purging will occur');
     }
+}
 
-    const results = await Promise.allSettled(
-        serviceIds.map(serviceId => purgeService(serviceId, allKeys, options.dryRun))
-    );
+// Helper function to execute purge operations
+async function executePurgeOperations(
+    serviceIds: string[],
+    userKeys: string[],
+    options: PurgeOptions
+): Promise<PromiseSettledResult<PurgeResult>[]> {
+    if (options.all) {
+        return Promise.allSettled(
+            serviceIds.map(serviceId => purgeAllService(serviceId, options.dryRun))
+        );
+    } else {
+        const defaultKeys = getDefaultKeys();
+        const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...userKeys] : userKeys;
+        
+        return Promise.allSettled(
+            serviceIds.map(serviceId => purgeService(serviceId, allKeys, options.dryRun))
+        );
+    }
+}
 
+// Helper function to process results
+function processResults(
+    results: PromiseSettledResult<PurgeResult>[],
+    serviceIds: string[],
+    options: PurgeOptions,
+    logger: Logger,
+    userKeys: string[]
+): { success: boolean; results: Array<{ serviceId: string; success: boolean; error?: string }> } {
     let hasErrors = false;
     let successCount = 0;
     const detailedResults: Array<{ serviceId: string; success: boolean; error?: string }> = [];
@@ -221,12 +321,7 @@ export async function executePurge(
         const serviceId = serviceIds[index];
 
         if (result.status === 'fulfilled') {
-            if (options.dryRun) {
-                logger.info(`[${serviceId}] Would purge keys: ${allKeys.join(', ')}`);
-            } else {
-                const idSuffix = result.value.id ? ` (ID: ${result.value.id})` : '';
-                logger.success(`[${serviceId}] Purged successfully${idSuffix}`);
-            }
+            logSuccessResult(logger, serviceId, result.value, options, userKeys);
             successCount++;
             detailedResults.push({ serviceId, success: true });
         } else {
@@ -236,15 +331,52 @@ export async function executePurge(
         }
     });
 
-    // Summary
-    if (options.dryRun) {
-        logger.info(`Dry run completed. Would have attempted to purge ${serviceIds.length} services.`);
-    } else {
-        logger.info(`Purge completed: ${successCount}/${serviceIds.length} services successful`);
-    }
+    // Log summary
+    logSummary(logger, options, serviceIds.length, successCount);
 
     return {
         success: !hasErrors,
         results: detailedResults
     };
+}
+
+// Helper function to log successful results
+function logSuccessResult(
+    logger: Logger,
+    serviceId: string,
+    result: PurgeResult,
+    options: PurgeOptions,
+    userKeys?: string[]
+): void {
+    const idSuffix = result.id ? ` (ID: ${result.id})` : '';
+    
+    if (options.dryRun) {
+        if (options.all) {
+            logger.info(`[${serviceId}] Would purge ALL cache`);
+        } else {
+            // We need to reconstruct the keys for dry run logging
+            const defaultKeys = getDefaultKeys();
+            const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...(userKeys || [])] : userKeys || [];
+            logger.info(`[${serviceId}] Would purge keys: ${allKeys.join(', ')}`);
+        }
+    } else if (options.all) {
+        logger.success(`[${serviceId}] Purged ALL cache successfully${idSuffix}`);
+    } else {
+        logger.success(`[${serviceId}] Purged successfully${idSuffix}`);
+    }
+}
+
+// Helper function to log summary
+function logSummary(
+    logger: Logger,
+    options: PurgeOptions,
+    totalServices: number,
+    successCount: number
+): void {
+    if (options.dryRun) {
+        const operation = options.all ? 'purge ALL cache for' : 'purge keys from';
+        logger.info(`Dry run completed. Would have attempted to ${operation} ${totalServices} services.`);
+    } else {
+        logger.info(`Purge completed: ${successCount}/${totalServices} services successful`);
+    }
 }

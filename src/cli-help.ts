@@ -63,6 +63,9 @@ export function generateQuickStartExamples(): string {
   examples.push(chalk.cyan('# Purge multiple keys'));
   examples.push('bleurgh user-123 product-456 category-789\n');
   
+  examples.push(chalk.cyan('# Purge ALL cache for services'));
+  examples.push('bleurgh --all\n');
+  
   examples.push(chalk.cyan('# Purge in production'));
   examples.push('bleurgh user-123 --env prod\n');
   
@@ -99,12 +102,14 @@ export function generateAdvancedHelp(): string {
   help.push(chalk.bold.blue('bleurgh - Fastly Cache Purge CLI\n'));
   
   help.push(chalk.yellow('USAGE:'));
-  help.push('  bleurgh <keys...> [options]\n');
+  help.push('  bleurgh <keys...> [options]');
+  help.push('  bleurgh --all [options]\n');
   
   help.push(chalk.yellow('ARGUMENTS:'));
   help.push('  keys                 Surrogate keys to purge (space-separated)\n');
   
   help.push(chalk.yellow('OPTIONS:'));
+  help.push('  --all                Purge ALL cache for services (ignores keys and defaults)');
   help.push('  --env <env>          Target environment: dev, test, prod (default: dev)');
   help.push('  --services <ids>     Override service IDs (comma-separated)');
   help.push('  --dry-run            Show what would be purged without actually doing it');
@@ -118,6 +123,8 @@ export function generateAdvancedHelp(): string {
   help.push(chalk.yellow('EXAMPLES:'));
   help.push('  bleurgh user-123                           # Purge user-123 in dev');
   help.push('  bleurgh user-123 product-456               # Purge multiple keys');
+  help.push('  bleurgh --all                              # Purge ALL cache');
+  help.push('  bleurgh --all --env prod                   # Purge ALL cache in production');
   help.push('  bleurgh user-123 --env prod                # Purge in production');
   help.push('  bleurgh user-123 --dry-run                 # Test without purging');
   help.push('  bleurgh user-123 --services "svc1,svc2"    # Override services');
