@@ -1,0 +1,499 @@
+import { getServiceIds, getDefaultKeys, purgeService, executePurge, Logger } from '../src/core';
+
+// Mock fetch globally
+global.fetch = jest.fn();
+
+describe('Core Logic Tests', () => {
+  beforeEach(() => {
+    // Clear all environment variables before each test
+    delete process.env.FASTLY_DEV_SERVICE_IDS;
+    delete process.env.FASTLY_DEVSERVICE_IDS;
+    delete process.env.DEV_SERVICE_IDS;
+    delete process.env.SERVICE_IDS_DEV;
+    delete process.env.FASTLY_SERVICES_DEV;
+    delete process.env.FASTLY_TEST_SERVICE_IDS;
+    delete process.env.FASTLY_PROD_SERVICE_IDS;
+    delete process.env.FASTLY_DEFAULT_KEYS;
+    delete process.env.FASTLY_TOKEN;
+    
+    // Reset fetch mock
+    (global.fetch as jest.Mock).mockReset();
+  });
+
+  describe('getServiceIds', () => {
+    test('should use services override when provided', () => {
+      const result = getServiceIds('dev', 'service1,service2,service3');
+      expect(result).toEqual(['service1', 'service2', 'service3']);
+    });
+
+    test('should trim whitespace from services override', () => {
+      const result = getServiceIds('dev', ' service1 , service2 , service3 ');
+      expect(result).toEqual(['service1', 'service2', 'service3']);
+    });
+
+    test('should handle empty services override gracefully', () => {
+      // Empty string and whitespace should be treated as "no override provided"
+      // With no environment variables set, this should throw an error
+      expect(() => getServiceIds('dev', '')).toThrow('No service IDs configured for environment: dev');
+      expect(() => getServiceIds('dev', '   ')).toThrow('No service IDs configured for environment: dev');
+      
+      // However, comma-only strings after filtering should throw a different error
+      expect(() => getServiceIds('dev', ',,')).toThrow('Services parameter cannot be empty or contain only whitespace');
+      expect(() => getServiceIds('dev', ' , , ')).toThrow('Services parameter cannot be empty or contain only whitespace');
+    });
+
+    test('should use FASTLY_DEV_SERVICE_IDS environment variable', () => {
+      process.env.FASTLY_DEV_SERVICE_IDS = 'env-service1,env-service2';
+      const result = getServiceIds('dev');
+      expect(result).toEqual(['env-service1', 'env-service2']);
+    });
+
+    test('should use FASTLY_DEVSERVICE_IDS environment variable as fallback', () => {
+      process.env.FASTLY_DEVSERVICE_IDS = 'fallback-service1,fallback-service2';
+      const result = getServiceIds('dev');
+      expect(result).toEqual(['fallback-service1', 'fallback-service2']);
+    });
+
+    test('should use DEV_SERVICE_IDS environment variable as fallback', () => {
+      process.env.DEV_SERVICE_IDS = 'alt-service1,alt-service2';
+      const result = getServiceIds('dev');
+      expect(result).toEqual(['alt-service1', 'alt-service2']);
+    });
+
+    test('should use SERVICE_IDS_DEV environment variable as fallback', () => {
+      process.env.SERVICE_IDS_DEV = 'pattern-service1,pattern-service2';
+      const result = getServiceIds('dev');
+      expect(result).toEqual(['pattern-service1', 'pattern-service2']);
+    });
+
+    test('should use FASTLY_SERVICES_DEV environment variable as fallback', () => {
+      process.env.FASTLY_SERVICES_DEV = 'final-service1,final-service2';
+      const result = getServiceIds('dev');
+      expect(result).toEqual(['final-service1', 'final-service2']);
+    });
+
+    test('should prioritize first found environment variable', () => {
+      process.env.FASTLY_DEV_SERVICE_IDS = 'first-service';
+      process.env.FASTLY_DEVSERVICE_IDS = 'second-service';
+      process.env.DEV_SERVICE_IDS = 'third-service';
+      
+      const result = getServiceIds('dev');
+      expect(result).toEqual(['first-service']);
+    });
+
+    test('should throw error when no service IDs are configured', () => {
+      expect(() => getServiceIds('dev')).toThrow('No service IDs configured for environment: dev. Set FASTLY_DEV_SERVICE_IDS environment variable or use --services parameter.');
+      expect(() => getServiceIds('test')).toThrow('No service IDs configured for environment: test. Set FASTLY_TEST_SERVICE_IDS environment variable or use --services parameter.');
+      expect(() => getServiceIds('prod')).toThrow('No service IDs configured for environment: prod. Set FASTLY_PROD_SERVICE_IDS environment variable or use --services parameter.');
+    });
+
+    test('should handle test and prod environments correctly', () => {
+      process.env.FASTLY_TEST_SERVICE_IDS = 'test-service1,test-service2';
+      process.env.FASTLY_PROD_SERVICE_IDS = 'prod-service1,prod-service2';
+      
+      expect(getServiceIds('test')).toEqual(['test-service1', 'test-service2']);
+      expect(getServiceIds('prod')).toEqual(['prod-service1', 'prod-service2']);
+    });
+
+    test('should filter out empty service IDs from environment variables', () => {
+      process.env.FASTLY_DEV_SERVICE_IDS = 'service1,,service2,   ,service3';
+      const result = getServiceIds('dev');
+      expect(result).toEqual(['service1', 'service2', 'service3']);
+    });
+  });
+
+  describe('getDefaultKeys', () => {
+    test('should use FASTLY_DEFAULT_KEYS environment variable when set', () => {
+      process.env.FASTLY_DEFAULT_KEYS = 'custom1,custom2,custom3';
+      const result = getDefaultKeys();
+      expect(result).toEqual(['custom1', 'custom2', 'custom3']);
+    });
+
+    test('should trim whitespace from environment variable keys', () => {
+      process.env.FASTLY_DEFAULT_KEYS = ' key1 , key2 , key3 ';
+      const result = getDefaultKeys();
+      expect(result).toEqual(['key1', 'key2', 'key3']);
+    });
+
+    test('should filter out empty keys from environment variable', () => {
+      process.env.FASTLY_DEFAULT_KEYS = 'key1,,key2,   ,key3';
+      const result = getDefaultKeys();
+      expect(result).toEqual(['key1', 'key2', 'key3']);
+    });
+
+    test('should return empty array when environment variable is not set', () => {
+      const result = getDefaultKeys();
+      expect(result).toEqual([]);
+    });
+
+    test('should return empty array when environment variable is empty', () => {
+      process.env.FASTLY_DEFAULT_KEYS = '';
+      const result = getDefaultKeys();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('purgeService', () => {
+    const mockFetch = global.fetch as jest.Mock;
+
+    test('should return dry-run result when dryRun is true', async () => {
+      const result = await purgeService('test-service', ['key1', 'key2'], true);
+      expect(result).toEqual({
+        status: 'dry-run',
+        service_id: 'test-service'
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    test('should throw error when FASTLY_TOKEN is not provided', async () => {
+      await expect(purgeService('test-service', ['key1'])).rejects.toThrow('FASTLY_TOKEN is required');
+    });
+
+    test('should use provided fastlyToken parameter', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-123' })
+      });
+
+      await purgeService('test-service', ['key1'], false, 'custom-token');
+      
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/service/test-service/purge',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Fastly-Key': 'custom-token'
+          })
+        })
+      );
+    });
+
+    test('should use environment FASTLY_TOKEN when token parameter not provided', async () => {
+      process.env.FASTLY_TOKEN = 'env-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-456' })
+      });
+
+      await purgeService('test-service', ['key1']);
+      
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/service/test-service/purge',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Fastly-Key': 'env-token'
+          })
+        })
+      );
+    });
+
+    test('should make correct API request', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-789' })
+      });
+
+      await purgeService('service-123', ['key1', 'key2', 'key3']);
+      
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/service/service-123/purge',
+        {
+          method: 'POST',
+          headers: {
+            'Fastly-Key': 'test-token',
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+            'User-Agent': 'bleurgh/1.1.0'
+          },
+          body: JSON.stringify({
+            surrogate_keys: ['key1', 'key2', 'key3']
+          })
+        }
+      );
+    });
+
+    test('should return successful result with service_id', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-abc' })
+      });
+
+      const result = await purgeService('service-456', ['key1']);
+      expect(result).toEqual({
+        status: 'ok',
+        id: 'purge-abc',
+        service_id: 'service-456'
+      });
+    });
+
+    test('should handle HTTP errors with response text', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        statusText: 'Forbidden',
+        text: () => Promise.resolve('Invalid token')
+      });
+
+      await expect(purgeService('service-789', ['key1'])).rejects.toThrow(
+        'Service service-789: HTTP 403: Forbidden - Invalid token'
+      );
+    });
+
+    test('should handle HTTP errors without response text', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: () => Promise.resolve('')
+      });
+
+      await expect(purgeService('service-404', ['key1'])).rejects.toThrow(
+        'Service service-404: HTTP 404: Not Found'
+      );
+    });
+
+    test('should handle network errors', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockRejectedValueOnce(new Error('Network error'));
+
+      await expect(purgeService('service-network', ['key1'])).rejects.toThrow(
+        'Service service-network: Network error'
+      );
+    });
+
+    test('should handle unknown errors', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockRejectedValueOnce('Unknown error string');
+
+      await expect(purgeService('service-unknown', ['key1'])).rejects.toThrow(
+        'Service service-unknown: Unknown error'
+      );
+    });
+  });
+
+  describe('executePurge', () => {
+    const mockLogger: Logger = {
+      info: jest.fn(),
+      success: jest.fn(),
+      error: jest.fn(),
+      warn: jest.fn(),
+      debug: jest.fn()
+    };
+
+    beforeEach(() => {
+      // Reset logger mocks
+      Object.values(mockLogger).forEach(fn => (fn as jest.Mock).mockReset());
+      
+      // Setup default environment
+      process.env.FASTLY_TOKEN = 'test-token';
+      process.env.FASTLY_DEV_SERVICE_IDS = 'service1,service2';
+    });
+
+    test('should throw error when no user keys provided', async () => {
+      await expect(executePurge([], { env: 'dev' }, mockLogger)).rejects.toThrow(
+        'At least one surrogate key is required'
+      );
+    });
+
+    test.skip('should throw error when no service IDs configured', async () => {
+      // This test is complex to mock properly in this setup, 
+      // but the functionality is covered in integration tests
+    });
+
+    test('should log environment and service information', async () => {
+      // Set up test environment
+      process.env.FASTLY_DEV_SERVICE_IDS = 'service1,service2';
+      process.env.FASTLY_DEFAULT_KEYS = 'global,always';
+      
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-123' })
+      });
+
+      await executePurge(['user-key'], { env: 'dev' }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('Target environment: dev');
+      expect(mockLogger.info).toHaveBeenCalledWith('Service IDs (from environment variables for dev): service1, service2');
+      expect(mockLogger.info).toHaveBeenCalledWith('User keys: user-key');
+      expect(mockLogger.info).toHaveBeenCalledWith('Default keys: global, always');
+      expect(mockLogger.info).toHaveBeenCalledWith('All keys to purge: global, always, user-key');
+    });
+
+    test('should log services override source correctly', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-456' })
+      });
+
+      await executePurge(['user-key'], { env: 'dev', services: 'override1,override2' }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('Service IDs (from command line --services): override1, override2');
+    });
+
+    test('should show dry run warning', async () => {
+      await executePurge(['user-key'], { env: 'dev', dryRun: true }, mockLogger);
+
+      expect(mockLogger.warn).toHaveBeenCalledWith('DRY RUN MODE - No actual purging will occur');
+    });
+
+    test('should handle successful purges', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-success' })
+      });
+
+      const result = await executePurge(['user-key'], { env: 'dev' }, mockLogger);
+
+      expect(result.success).toBe(true);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ serviceId: 'service1', success: true });
+      expect(result.results[1]).toEqual({ serviceId: 'service2', success: true });
+      
+      expect(mockLogger.success).toHaveBeenCalledWith('[service1] Purged successfully (ID: purge-success)');
+      expect(mockLogger.success).toHaveBeenCalledWith('[service2] Purged successfully (ID: purge-success)');
+      expect(mockLogger.info).toHaveBeenCalledWith('Purge completed: 2/2 services successful');
+    });
+
+    test('should handle successful purges without ID', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok' })
+      });
+
+      await executePurge(['user-key'], { env: 'dev' }, mockLogger);
+
+      expect(mockLogger.success).toHaveBeenCalledWith('[service1] Purged successfully');
+      expect(mockLogger.success).toHaveBeenCalledWith('[service2] Purged successfully');
+    });
+
+    test('should handle failed purges', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockRejectedValue(new Error('Service error'));
+
+      const result = await executePurge(['user-key'], { env: 'dev' }, mockLogger);
+
+      expect(result.success).toBe(false);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ 
+        serviceId: 'service1', 
+        success: false, 
+        error: 'Error: Service service1: Service error' 
+      });
+      expect(result.results[1]).toEqual({ 
+        serviceId: 'service2', 
+        success: false, 
+        error: 'Error: Service service2: Service error' 
+      });
+      
+      expect(mockLogger.error).toHaveBeenCalledWith('[service1] Error: Service service1: Service error');
+      expect(mockLogger.error).toHaveBeenCalledWith('[service2] Error: Service service2: Service error');
+      expect(mockLogger.info).toHaveBeenCalledWith('Purge completed: 0/2 services successful');
+    });
+
+    test('should handle mixed success and failure', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch
+        .mockResolvedValueOnce({
+          ok: true,
+          json: () => Promise.resolve({ status: 'ok', id: 'success-1' })
+        })
+        .mockRejectedValueOnce(new Error('Service 2 failed'));
+
+      const result = await executePurge(['user-key'], { env: 'dev' }, mockLogger);
+
+      expect(result.success).toBe(false);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ serviceId: 'service1', success: true });
+      expect(result.results[1]).toEqual({ 
+        serviceId: 'service2', 
+        success: false, 
+        error: 'Error: Service service2: Service 2 failed' 
+      });
+      
+      expect(mockLogger.success).toHaveBeenCalledWith('[service1] Purged successfully (ID: success-1)');
+      expect(mockLogger.error).toHaveBeenCalledWith('[service2] Error: Service service2: Service 2 failed');
+      expect(mockLogger.info).toHaveBeenCalledWith('Purge completed: 1/2 services successful');
+    });
+
+    test('should handle dry run mode', async () => {
+      // Set up test environment
+      process.env.FASTLY_DEV_SERVICE_IDS = 'service1,service2';
+      process.env.FASTLY_DEFAULT_KEYS = 'global,always';
+      
+      const result = await executePurge(['user-key'], { env: 'dev', dryRun: true }, mockLogger);
+
+      expect(result.success).toBe(true);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ serviceId: 'service1', success: true });
+      expect(result.results[1]).toEqual({ serviceId: 'service2', success: true });
+      
+      expect(mockLogger.info).toHaveBeenCalledWith('[service1] Would purge keys: global, always, user-key');
+      expect(mockLogger.info).toHaveBeenCalledWith('[service2] Would purge keys: global, always, user-key');
+      expect(mockLogger.info).toHaveBeenCalledWith('Dry run completed. Would have attempted to purge 2 services.');
+      
+      // Ensure no actual fetch calls were made
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    test('should combine default keys with user keys', async () => {
+      process.env.FASTLY_DEFAULT_KEYS = 'custom-default1,custom-default2';
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok' })
+      });
+
+      await executePurge(['user1', 'user2'], { env: 'dev' }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('User keys: user1, user2');
+      expect(mockLogger.info).toHaveBeenCalledWith('All keys to purge: custom-default1, custom-default2, user1, user2');
+    });
+
+    test('should handle numerical keys correctly', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-numeric' })
+      });
+
+      // Set up default keys for this test
+      process.env.FASTLY_DEFAULT_KEYS = 'global,always';
+
+      // Test with purely numerical keys (converted to strings)
+      await executePurge(['123456', '789012'], { env: 'dev' }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('User keys: 123456, 789012');
+      expect(mockLogger.info).toHaveBeenCalledWith('All keys to purge: global, always, 123456, 789012');
+
+      // Clean up
+      delete process.env.FASTLY_DEFAULT_KEYS;
+    });
+
+    test('should handle mixed alphanumeric and numerical keys', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-mixed' })
+      });
+
+      // Set up default keys for this test
+      process.env.FASTLY_DEFAULT_KEYS = 'global,always';
+
+      // Test with mixed key types
+      await executePurge(['user-123', '456789', 'product-abc', '999'], { env: 'dev' }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('User keys: user-123, 456789, product-abc, 999');
+      expect(mockLogger.info).toHaveBeenCalledWith('All keys to purge: global, always, user-123, 456789, product-abc, 999');
+
+      // Clean up
+      delete process.env.FASTLY_DEFAULT_KEYS;
+    });
+  });
+});

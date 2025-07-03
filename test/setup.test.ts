@@ -1,0 +1,250 @@
+import { decodeSetupString, encodeSetupString, executeSetup, validateExportCommands } from '../src/setup';
+
+describe('Setup Functionality Tests', () => {
+  const mockLogger = {
+    info: jest.fn(),
+    success: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn()
+  };
+
+  beforeEach(() => {
+    // Reset logger mocks
+    Object.values(mockLogger).forEach(fn => fn.mockReset());
+    
+    // Clear environment variables
+    delete process.env.FASTLY_TOKEN;
+    delete process.env.FASTLY_DEV_SERVICE_IDS;
+    delete process.env.FASTLY_TEST_SERVICE_IDS;
+    delete process.env.FASTLY_PROD_SERVICE_IDS;
+    delete process.env.FASTLY_DEFAULT_KEYS;
+  });
+
+  describe('encodeSetupString and decodeSetupString', () => {
+    test('should encode and decode configuration correctly', () => {
+      const config = {
+        fastlyToken: 'test-token-123',
+        devServiceIds: 'dev-svc-1,dev-svc-2',
+        testServiceIds: 'test-svc-1,test-svc-2',
+        prodServiceIds: 'prod-svc-1,prod-svc-2',
+        defaultKeys: 'global,always,cache'
+      };
+
+      const encoded = encodeSetupString(config);
+      const decoded = decodeSetupString(encoded);
+
+      expect(decoded).toEqual(config);
+      expect(typeof encoded).toBe('string');
+      expect(encoded.length).toBeGreaterThan(0);
+    });
+
+    test('should handle minimal configuration', () => {
+      const config = {
+        fastlyToken: 'minimum-token'
+      };
+
+      const encoded = encodeSetupString(config);
+      const decoded = decodeSetupString(encoded);
+
+      expect(decoded).toEqual(config);
+    });
+
+    test('should throw error for missing fastlyToken', () => {
+      const invalidConfig = {
+        devServiceIds: 'dev-svc-1'
+      };
+
+      const encoded = encodeSetupString(invalidConfig as any);
+      
+      expect(() => decodeSetupString(encoded)).toThrow('Missing required field: fastlyToken');
+    });
+
+    test('should throw error for invalid base64', () => {
+      expect(() => decodeSetupString('invalid-base64')).toThrow('Invalid setup configuration');
+    });
+
+    test('should throw error for invalid JSON', () => {
+      const invalidBase64 = Buffer.from('invalid json', 'utf-8').toString('base64');
+      expect(() => decodeSetupString(invalidBase64)).toThrow('Invalid setup configuration');
+    });
+  });
+
+  describe('executeSetup', () => {
+    test('should show manual setup instructions when allowExecution is false', async () => {
+      const config = {
+        fastlyToken: 'test-token',
+        devServiceIds: 'dev-svc-1,dev-svc-2'
+      };
+      const encoded = encodeSetupString(config);
+
+      await executeSetup(encoded, { allowExecution: false, force: false }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('🚀 Starting bleurgh CLI setup...');
+      expect(mockLogger.info).toHaveBeenCalledWith('📋 Copy and paste the following commands to your terminal:');
+    });
+
+    test('should detect existing environment variables', async () => {
+      // Set existing environment variable
+      process.env.FASTLY_TOKEN = 'existing-token';
+
+      const config = {
+        fastlyToken: 'test-token',
+        devServiceIds: 'dev-svc-1,dev-svc-2'
+      };
+      const encoded = encodeSetupString(config);
+
+      await executeSetup(encoded, { allowExecution: false, force: false }, mockLogger);
+
+      expect(mockLogger.warn).toHaveBeenCalledWith('Environment variables already detected:');
+      expect(mockLogger.info).toHaveBeenCalledWith('  FASTLY_TOKEN=existing...'); // Should be masked
+      expect(mockLogger.info).toHaveBeenCalledWith('Use --force to override existing configuration');
+    });
+
+    test('should proceed with force option when variables exist', async () => {
+      // Set existing environment variable
+      process.env.FASTLY_TOKEN = 'existing-token';
+
+      const config = {
+        fastlyToken: 'test-token',
+        devServiceIds: 'dev-svc-1,dev-svc-2'
+      };
+      const encoded = encodeSetupString(config);
+
+      await executeSetup(encoded, { allowExecution: false, force: true }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('📋 Copy and paste the following commands to your terminal:');
+      expect(mockLogger.warn).not.toHaveBeenCalledWith('Environment variables already detected:');
+    });
+
+    test('should handle invalid configuration gracefully', async () => {
+      const invalidEncoded = 'invalid-base64-string';
+
+      // Mock process.exit to prevent test from actually exiting
+      const mockExit = jest.spyOn(process, 'exit').mockImplementation(() => {
+        throw new Error('process.exit called');
+      });
+
+      await expect(
+        executeSetup(invalidEncoded, { allowExecution: false, force: false }, mockLogger)
+      ).rejects.toThrow('process.exit called');
+
+      expect(mockLogger.error).toHaveBeenCalledWith(
+        expect.stringContaining('Invalid setup configuration')
+      );
+
+      mockExit.mockRestore();
+    });
+
+    test('should handle configuration with all optional fields', async () => {
+      const config = {
+        fastlyToken: 'complete-token',
+        devServiceIds: 'dev-1,dev-2',
+        testServiceIds: 'test-1,test-2',
+        prodServiceIds: 'prod-1,prod-2',
+        defaultKeys: 'custom,keys,here'
+      };
+      const encoded = encodeSetupString(config);
+
+      await executeSetup(encoded, { allowExecution: false, force: false }, mockLogger);
+
+      expect(mockLogger.info).toHaveBeenCalledWith('🚀 Starting bleurgh CLI setup...');
+      expect(mockLogger.info).toHaveBeenCalledWith('📋 Copy and paste the following commands to your terminal:');
+    });
+
+    test('should validate export commands during setup (integration)', async () => {
+      // This test verifies that export command validation is integrated
+      // by using a configuration that should pass validation
+      const config = {
+        fastlyToken: 'test-token'
+      };
+      const encoded = encodeSetupString(config);
+
+      // This should succeed without any errors logged
+      await executeSetup(encoded, { allowExecution: false, force: false }, mockLogger);
+
+      // Check that no validation errors were logged
+      expect(mockLogger.error).not.toHaveBeenCalledWith(
+        expect.stringMatching(/Export command validation failed/)
+      );
+      
+      // Verify the setup completed successfully
+      expect(mockLogger.info).toHaveBeenCalledWith('🚀 Starting bleurgh CLI setup...');
+      expect(mockLogger.info).toHaveBeenCalledWith('📋 Copy and paste the following commands to your terminal:');
+    });
+
+    test('should detect dangerous values with enhanced security validation', () => {
+      // Test that our enhanced security validation catches various attack vectors
+      const dangerousConfig = {
+        fastlyToken: 'token$(whoami)' // Command substitution
+      };
+
+      expect(() => {
+        decodeSetupString(encodeSetupString(dangerousConfig));
+      }).toThrow(/Security validation failed/);
+    });
+  });
+
+  describe('validateExportCommands', () => {
+    test('should validate correct export commands', () => {
+      const validCommands = [
+        'export FASTLY_TOKEN="test-token-123"',
+        'export FASTLY_DEV_SERVICE_IDS="dev-svc-1,dev-svc-2"',
+        'export FASTLY_TEST_SERVICE_IDS="test-svc-1"',
+        'export FASTLY_PROD_SERVICE_IDS="prod-svc-1,prod-svc-2"',
+        'export FASTLY_DEFAULT_KEYS="global,always"'
+      ];
+
+      const result = validateExportCommands(validCommands);
+      expect(result.isValid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.warnings).toHaveLength(0);
+    });
+
+    test('should reject commands with invalid format', () => {
+      const invalidCommands = [
+        'export FASTLY_TOKEN=test-token-123', // Missing quotes
+        'set FASTLY_TOKEN="test-token"', // Wrong command
+        'export FASTLY_TOKEN="test" && rm -rf /', // Command injection
+        'export INVALID_VAR="value"' // Invalid variable name
+      ];
+
+      const result = validateExportCommands(invalidCommands);
+      expect(result.isValid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    test('should reject invalid variable names', () => {
+      const invalidCommands = [
+        'export MALICIOUS_VAR="value"',
+        'export PATH="/malicious/path"',
+        'export LD_LIBRARY_PATH="/bad/path"'
+      ];
+
+      const result = validateExportCommands(invalidCommands);
+      expect(result.isValid).toBe(false);
+      expect(result.errors).toContain('Invalid environment variable name: \'MALICIOUS_VAR\' is not in the allowlist');
+    });
+
+    test('should reject unsafe values', () => {
+      const unsafeCommands = [
+        'export FASTLY_TOKEN="test$injection"',
+        'export FASTLY_TOKEN="test\\"quote"',
+        'export FASTLY_TOKEN="test\\backslash"'
+      ];
+
+      const result = validateExportCommands(unsafeCommands);
+      expect(result.isValid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+      
+      // Check that errors contain expected patterns
+      const errorMessages = result.errors.join(' ');
+      expect(errorMessages).toMatch(/Invalid command format|Unsafe value/);
+    });
+
+    test('should handle empty command list', () => {
+      const result = validateExportCommands([]);
+      expect(result.isValid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+  });
+});

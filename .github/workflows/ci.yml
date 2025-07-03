@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        node-version: [18, 20]
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run build
+        run: npm run build
+        
+      - name: Run Jest tests
+        run: npm test
+        
+      - name: Test CLI help
+        run: node dist/index.js --help
+        
+      - name: Test CLI version
+        run: node dist/index.js --version
+        
+      - name: Test dry run (should fail without token)
+        run: |
+          if node dist/index.js test-key --dry-run; then
+            echo "Should have failed without FASTLY_TOKEN"
+            exit 1
+          else
+            echo "Correctly failed without FASTLY_TOKEN"
+          fi
+          
+      - name: Test dry run with dummy token
+        env:
+          FASTLY_TOKEN: dummy-token
+        run: node dist/index.js test-key --dry-run --verbose
+        
+      - name: Test multiple keys
+        env:
+          FASTLY_TOKEN: dummy-token
+        run: node dist/index.js key1 key2 key3 --dry-run --verbose
+        
+      - name: Test services override
+        env:
+          FASTLY_TOKEN: dummy-token
+        run: node dist/index.js test-key --services test-svc-1,test-svc-2 --dry-run
+        
+      - name: Test multiple keys with services override
+        env:
+          FASTLY_TOKEN: dummy-token
+        run: node dist/index.js key1 key2 --services test-svc-1,test-svc-2 --dry-run
+        
+      - name: Test environment variable patterns
+        env:
+          FASTLY_TOKEN: dummy-token
+          DEV_SERVICE_IDS: pattern-test-1,pattern-test-2
+        run: node dist/index.js test-key --env dev --dry-run
