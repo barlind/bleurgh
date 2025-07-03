@@ -12,6 +12,7 @@ export interface PurgeOptions {
     verbose?: boolean;
     dryRun?: boolean;
     all?: boolean;
+    url?: boolean;
 }
 
 export interface Logger {
@@ -220,34 +221,97 @@ export async function purgeAllService(
     }
 }
 
+// Purge URL for a service
+export async function purgeUrlService(
+    serviceId: string,
+    url: string,
+    dryRun = false,
+    fastlyToken?: string
+): Promise<PurgeResult> {
+    const purgeUrl = `https://api.fastly.com/purge/${url.replace("https://", "")}`;
+
+    if (dryRun) {
+        return {
+            status: 'dry-run-url',
+            service_id: serviceId
+        };
+    }
+
+    const token = fastlyToken ?? process.env.FASTLY_TOKEN;
+    if (!token) {
+        throw new Error('FASTLY_TOKEN is required');
+    }
+
+    try {
+        const response = await fetch(purgeUrl, {
+            method: 'POST',
+            headers: {
+                'Fastly-Key': token,
+                'Accept': 'application/json',
+                'User-Agent': 'bleurgh/1.2.0'
+            }
+        });
+
+        if (!response.ok) {
+            const errorText = await response.text();
+            const errorSuffix = errorText ? ` - ${errorText}` : '';
+            throw new Error(`HTTP ${response.status}: ${response.statusText}${errorSuffix}`);
+        }
+
+        const result = await response.json() as PurgeResult;
+        return {
+            ...result,
+            service_id: serviceId
+        };
+    } catch (error) {
+        throw new Error(`Service ${serviceId}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+}
+
+// Helper function to detect if the first key is a URL
+export function isUrlPurge(userKeys: string[]): boolean {
+    return userKeys.length > 0 && userKeys[0].startsWith('https://');
+}
+
 // Main purge orchestration function
 export async function executePurge(
     userKeys: string[],
     options: PurgeOptions,
     logger: Logger
 ): Promise<{ success: boolean; results: Array<{ serviceId: string; success: boolean; error?: string }> }> {
+    // Detect URL purge mode
+    const isUrl = isUrlPurge(userKeys);
+    
     // Validate input parameters
     if (options.all && userKeys.length > 0) {
         throw new Error('Cannot use --all flag with specific keys');
     }
     
-    if (!options.all && userKeys.length === 0) {
+    if (isUrl && userKeys.length > 1) {
+        logger.warn(`URL detected: ${userKeys[0]} - ignoring additional keys: ${userKeys.slice(1).join(', ')}`);
+        userKeys = [userKeys[0]]; // Only use the first URL
+    }
+    
+    if (!options.all && !isUrl && userKeys.length === 0) {
         throw new Error('At least one surrogate key is required (or use --all flag)');
     }
 
+    // Update options to reflect URL mode
+    const updatedOptions = { ...options, url: isUrl };
+
     // Get service configuration
-    const serviceIds = getServiceIds(options.env, options.services);
-    const serviceSource = options.services ? 'command line --services' : `environment variables for ${options.env}`;
-    const serviceNames = options.services ? [] : getServiceNames(options.env);
+    const serviceIds = getServiceIds(updatedOptions.env, updatedOptions.services);
+    const serviceSource = updatedOptions.services ? 'command line --services' : `environment variables for ${updatedOptions.env}`;
+    const serviceNames = updatedOptions.services ? [] : getServiceNames(updatedOptions.env);
 
     // Log operation details
-    logOperationDetails(logger, options, serviceIds, serviceSource, serviceNames, userKeys);
+    logOperationDetails(logger, updatedOptions, serviceIds, serviceSource, serviceNames, userKeys);
 
     // Execute purge operations
-    const results = await executePurgeOperations(serviceIds, userKeys, options);
+    const results = await executePurgeOperations(serviceIds, userKeys, updatedOptions);
 
     // Process and log results
-    return processResults(results, serviceIds, options, logger, userKeys);
+    return processResults(results, serviceIds, updatedOptions, logger, userKeys);
 }
 
 // Helper function to log operation details
@@ -269,6 +333,8 @@ function logOperationDetails(
 
     if (options.all) {
         logger.info(`Operation: Purge ALL cache for services`);
+    } else if (options.url) {
+        logger.info(`Operation: Purge URL - ${userKeys[0]}`);
     } else {
         const defaultKeys = getDefaultKeys();
         const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...userKeys] : userKeys;
@@ -295,6 +361,13 @@ async function executePurgeOperations(
         return Promise.allSettled(
             serviceIds.map(serviceId => purgeAllService(serviceId, options.dryRun))
         );
+    } else if (options.url) {
+        const url = userKeys[0];
+        // URL purging is global, only make one call regardless of services
+        const result = await Promise.allSettled([
+            purgeUrlService('global', url, options.dryRun)
+        ]);
+        return result;
     } else {
         const defaultKeys = getDefaultKeys();
         const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...userKeys] : userKeys;
@@ -317,19 +390,38 @@ function processResults(
     let successCount = 0;
     const detailedResults: Array<{ serviceId: string; success: boolean; error?: string }> = [];
 
-    results.forEach((result, index) => {
-        const serviceId = serviceIds[index];
-
+    if (options.url) {
+        // For URL purging, we only make one global call but report it as successful for all services
+        const result = results[0];
         if (result.status === 'fulfilled') {
-            logSuccessResult(logger, serviceId, result.value, options, userKeys);
-            successCount++;
-            detailedResults.push({ serviceId, success: true });
+            logSuccessResult(logger, 'global', result.value, options, userKeys);
+            successCount = serviceIds.length; // Count as success for all services
+            serviceIds.forEach(serviceId => {
+                detailedResults.push({ serviceId, success: true });
+            });
         } else {
-            logger.error(`[${serviceId}] ${result.reason}`);
+            logger.error(`URL purge failed: ${result.reason}`);
             hasErrors = true;
-            detailedResults.push({ serviceId, success: false, error: String(result.reason) });
+            serviceIds.forEach(serviceId => {
+                detailedResults.push({ serviceId, success: false, error: String(result.reason) });
+            });
         }
-    });
+    } else {
+        // For non-URL purging, process each service result individually
+        results.forEach((result, index) => {
+            const serviceId = serviceIds[index];
+
+            if (result.status === 'fulfilled') {
+                logSuccessResult(logger, serviceId, result.value, options, userKeys);
+                successCount++;
+                detailedResults.push({ serviceId, success: true });
+            } else {
+                logger.error(`[${serviceId}] ${result.reason}`);
+                hasErrors = true;
+                detailedResults.push({ serviceId, success: false, error: String(result.reason) });
+            }
+        });
+    }
 
     // Log summary
     logSummary(logger, options, serviceIds.length, successCount);
@@ -351,16 +443,55 @@ function logSuccessResult(
     const idSuffix = result.id ? ` (ID: ${result.id})` : '';
     
     if (options.dryRun) {
-        if (options.all) {
-            logger.info(`[${serviceId}] Would purge ALL cache`);
+        logDryRunResult(logger, serviceId, result, options, userKeys);
+    } else {
+        logActualResult(logger, serviceId, result, options, userKeys, idSuffix);
+    }
+}
+
+// Helper function to log dry run results
+function logDryRunResult(
+    logger: Logger,
+    serviceId: string,
+    result: PurgeResult,
+    options: PurgeOptions,
+    userKeys?: string[]
+): void {
+    if (result.status === 'dry-run-all' || options.all) {
+        logger.info(`[${serviceId}] Would purge ALL cache`);
+    } else if (result.status === 'dry-run-url' || options.url) {
+        const url = userKeys && userKeys.length > 0 ? userKeys[0] : '';
+        if (serviceId === 'global') {
+            logger.info(`Would purge URL globally: ${url}`);
         } else {
-            // We need to reconstruct the keys for dry run logging
-            const defaultKeys = getDefaultKeys();
-            const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...(userKeys || [])] : userKeys || [];
-            logger.info(`[${serviceId}] Would purge keys: ${allKeys.join(', ')}`);
+            logger.info(`[${serviceId}] Would purge URL: ${url}`);
         }
-    } else if (options.all) {
+    } else {
+        // We need to reconstruct the keys for dry run logging
+        const defaultKeys = getDefaultKeys();
+        const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...(userKeys || [])] : userKeys || [];
+        logger.info(`[${serviceId}] Would purge keys: ${allKeys.join(', ')}`);
+    }
+}
+
+// Helper function to log actual purge results
+function logActualResult(
+    logger: Logger,
+    serviceId: string,
+    result: PurgeResult,
+    options: PurgeOptions,
+    userKeys?: string[],
+    idSuffix?: string
+): void {
+    if (options.all) {
         logger.success(`[${serviceId}] Purged ALL cache successfully${idSuffix}`);
+    } else if (options.url) {
+        const url = userKeys && userKeys.length > 0 ? userKeys[0] : '';
+        if (serviceId === 'global') {
+            logger.success(`Purged URL globally: ${url}${idSuffix}`);
+        } else {
+            logger.success(`[${serviceId}] Purged URL successfully: ${url}${idSuffix}`);
+        }
     } else {
         logger.success(`[${serviceId}] Purged successfully${idSuffix}`);
     }
@@ -374,8 +505,22 @@ function logSummary(
     successCount: number
 ): void {
     if (options.dryRun) {
-        const operation = options.all ? 'purge ALL cache for' : 'purge keys from';
-        logger.info(`Dry run completed. Would have attempted to ${operation} ${totalServices} services.`);
+        let operation: string;
+        if (options.all) {
+            operation = 'purge ALL cache for';
+        } else if (options.url) {
+            operation = 'purge URL globally (affects all services)';
+        } else {
+            operation = 'purge keys from';
+        }
+        
+        if (options.url) {
+            logger.info(`Dry run completed. Would have attempted to ${operation}.`);
+        } else {
+            logger.info(`Dry run completed. Would have attempted to ${operation} ${totalServices} services.`);
+        }
+    } else if (options.url) {
+        logger.info(`URL purge completed globally (affects all services)`);
     } else {
         logger.info(`Purge completed: ${successCount}/${totalServices} services successful`);
     }

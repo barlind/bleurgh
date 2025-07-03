@@ -1,4 +1,4 @@
-import { getServiceIds, getDefaultKeys, purgeService, executePurge, Logger, purgeAllService } from '../src/core';
+import { getServiceIds, getDefaultKeys, purgeService, executePurge, Logger, purgeAllService, purgeUrlService, isUrlPurge } from '../src/core';
 
 // Mock fetch globally
 global.fetch = jest.fn();
@@ -360,6 +360,109 @@ describe('Core Logic Tests', () => {
     });
   });
 
+  describe('purgeUrlService', () => {
+    const mockFetch = global.fetch as jest.Mock;
+
+    test('should return dry-run-url result when dryRun is true', async () => {
+      const result = await purgeUrlService('test-service', 'https://example.com/page', true);
+      expect(result).toEqual({
+        status: 'dry-run-url',
+        service_id: 'test-service'
+      });
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    test('should throw error when FASTLY_TOKEN is not provided', async () => {
+      await expect(purgeUrlService('test-service', 'https://example.com/page')).rejects.toThrow('FASTLY_TOKEN is required');
+    });
+
+    test('should use provided fastlyToken parameter', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-url-123' })
+      });
+
+      await purgeUrlService('test-service', 'https://example.com/page', false, 'custom-token');
+      
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/purge/example.com/page',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Fastly-Key': 'custom-token'
+          })
+        })
+      );
+    });
+
+    test('should make correct API request for URL purge', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-url-789' })
+      });
+
+      await purgeUrlService('service-123', 'https://example.com/special-page?param=value');
+      
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.fastly.com/purge/example.com/special-page?param=value',
+        {
+          method: 'POST',
+          headers: {
+            'Fastly-Key': 'test-token',
+            'Accept': 'application/json',
+            'User-Agent': 'bleurgh/1.2.0'
+          }
+        }
+      );
+    });
+
+    test('should return successful result with service_id', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-url-abc' })
+      });
+
+      const result = await purgeUrlService('service-456', 'https://example.com/page');
+      expect(result).toEqual({
+        status: 'ok',
+        id: 'purge-url-abc',
+        service_id: 'service-456'
+      });
+    });
+
+    test('should handle HTTP errors for URL purge', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        text: () => Promise.resolve('URL not found')
+      });
+
+      await expect(purgeUrlService('service-789', 'https://example.com/notfound')).rejects.toThrow(
+        'Service service-789: HTTP 404: Not Found - URL not found'
+      );
+    });
+  });
+
+  describe('isUrlPurge', () => {
+    test('should return true when first key starts with https://', () => {
+      expect(isUrlPurge(['https://example.com/page'])).toBe(true);
+      expect(isUrlPurge(['https://example.com/page', 'other-key'])).toBe(true);
+    });
+
+    test('should return false when first key does not start with https://', () => {
+      expect(isUrlPurge(['user-123'])).toBe(false);
+      expect(isUrlPurge(['http://example.com/page'])).toBe(false);
+      expect(isUrlPurge(['ftp://example.com/file'])).toBe(false);
+    });
+
+    test('should return false when no keys provided', () => {
+      expect(isUrlPurge([])).toBe(false);
+    });
+  });
+
   describe('executePurge', () => {
     const mockLogger: Logger = {
       info: jest.fn(),
@@ -665,5 +768,79 @@ describe('Core Logic Tests', () => {
       expect(mockLogger.error).toHaveBeenCalledWith('[service2] Error: Service service2: Service error for purge all');
       expect(mockLogger.info).toHaveBeenCalledWith('Purge completed: 0/2 services successful');
     });
+
+    test('should handle URL purging when first key starts with https://', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-url-123' })
+      });
+
+      const result = await executePurge(['https://example.com/page'], { env: 'dev' }, mockLogger);
+
+      expect(result.success).toBe(true);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ serviceId: 'service1', success: true });
+      expect(result.results[1]).toEqual({ serviceId: 'service2', success: true });
+      
+      expect(mockLogger.info).toHaveBeenCalledWith('Operation: Purge URL - https://example.com/page');
+      expect(mockLogger.success).toHaveBeenCalledWith('Purged URL globally: https://example.com/page (ID: purge-url-123)');
+      expect(mockLogger.info).toHaveBeenCalledWith('URL purge completed globally (affects all services)');
+      
+      // Verify only one fetch call was made (global purge)
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    test('should warn and ignore additional keys when first key is URL', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: 'ok', id: 'purge-url-456' })
+      });
+
+      await executePurge(['https://example.com/page', 'ignored-key-1', 'ignored-key-2'], { env: 'dev' }, mockLogger);
+
+      expect(mockLogger.warn).toHaveBeenCalledWith('URL detected: https://example.com/page - ignoring additional keys: ignored-key-1, ignored-key-2');
+      expect(mockLogger.info).toHaveBeenCalledWith('Operation: Purge URL - https://example.com/page');
+    });
+
+    test('should handle URL purging in dry run mode', async () => {
+      const result = await executePurge(['https://example.com/page'], { env: 'dev', dryRun: true }, mockLogger);
+
+      expect(result.success).toBe(true);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ serviceId: 'service1', success: true });
+      expect(result.results[1]).toEqual({ serviceId: 'service2', success: true });
+      
+      expect(mockLogger.info).toHaveBeenCalledWith('Would purge URL globally: https://example.com/page');
+      expect(mockLogger.info).toHaveBeenCalledWith('Dry run completed. Would have attempted to purge URL globally (affects all services).');
+      
+      // Ensure no actual fetch calls were made
+      expect(global.fetch).not.toHaveBeenCalled();
+    });
+
+    test('should handle URL purging failures', async () => {
+      const mockFetch = global.fetch as jest.Mock;
+      mockFetch.mockRejectedValue(new Error('Service error for URL purge'));
+
+      const result = await executePurge(['https://example.com/page'], { env: 'dev' }, mockLogger);
+
+      expect(result.success).toBe(false);
+      expect(result.results).toHaveLength(2);
+      expect(result.results[0]).toEqual({ 
+        serviceId: 'service1', 
+        success: false, 
+        error: 'Error: Service global: Service error for URL purge' 
+      });
+      expect(result.results[1]).toEqual({ 
+        serviceId: 'service2', 
+        success: false, 
+        error: 'Error: Service global: Service error for URL purge' 
+      });
+      
+      expect(mockLogger.error).toHaveBeenCalledWith('URL purge failed: Error: Service global: Service error for URL purge');
+      expect(mockLogger.info).toHaveBeenCalledWith('URL purge completed globally (affects all services)');
+    });
+
   });
 });

@@ -63,6 +63,9 @@ export function generateQuickStartExamples(): string {
   examples.push(chalk.cyan('# Purge multiple keys'));
   examples.push('bleurgh user-123 product-456 category-789\n');
   
+  examples.push(chalk.cyan('# Purge specific URL (global)'));
+  examples.push('bleurgh https://example.com/page\n');
+  
   examples.push(chalk.cyan('# Purge ALL cache for services'));
   examples.push('bleurgh --all\n');
   
@@ -106,7 +109,8 @@ export function generateAdvancedHelp(): string {
   help.push('  bleurgh --all [options]\n');
   
   help.push(chalk.yellow('ARGUMENTS:'));
-  help.push('  keys                 Surrogate keys to purge (space-separated)\n');
+  help.push('  keys                 Surrogate keys to purge (space-separated)');
+  help.push('                       If first key starts with https://, purges that URL globally\n');
   
   help.push(chalk.yellow('OPTIONS:'));
   help.push('  --all                Purge ALL cache for services (ignores keys and defaults)');
@@ -123,6 +127,7 @@ export function generateAdvancedHelp(): string {
   help.push(chalk.yellow('EXAMPLES:'));
   help.push('  bleurgh user-123                           # Purge user-123 in dev');
   help.push('  bleurgh user-123 product-456               # Purge multiple keys');
+  help.push('  bleurgh https://example.com/page           # Purge specific URL (global)');
   help.push('  bleurgh --all                              # Purge ALL cache');
   help.push('  bleurgh --all --env prod                   # Purge ALL cache in production');
   help.push('  bleurgh user-123 --env prod                # Purge in production');

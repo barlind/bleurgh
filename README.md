@@ -138,6 +138,9 @@ bleurgh user-123
 # Purge multiple keys at once
 bleurgh user-123 product-456 article-789
 
+# Purge specific URL (global across all services)
+bleurgh https://example.com/page
+
 # Purge ALL cache for services (ignores keys and defaults)
 bleurgh --all
 
@@ -292,6 +295,28 @@ The tool automatically includes default keys (if configured via `FASTLY_DEFAULT_
 - With defaults: `bleurgh user-123` → `["global", "always", "user-123"]`
 - Without defaults: `bleurgh user-123` → `["user-123"]`
 - Multiple keys: `bleurgh key1 key2 key3` → `["global", "always", "key1", "key2", "key3"]`
+
+### URL Purging
+
+When the first argument starts with `https://`, bleurgh automatically switches to URL purge mode:
+
+- **Global purging**: URLs are purged globally across Fastly's network (not per-service)
+- **Single API call**: Only one purge request is made regardless of configured services
+- **Extra keys ignored**: Additional arguments after the URL are ignored with a warning
+- **Environment independent**: URL purges work the same across all environments
+
+Examples:
+```bash
+# Purge a specific page globally
+bleurgh https://example.com/page
+
+# URL with query parameters (automatically encoded)
+bleurgh "https://example.com/api/data?id=123&type=json"
+
+# Multiple arguments - extra keys are ignored with warning
+bleurgh https://example.com/page extra-key another-key
+# ⚠️ Warning: URL detected: https://example.com/page - ignoring additional keys: extra-key, another-key
+```
 
 </details>
 
@@ -580,6 +605,15 @@ The CLI automatically detects and prevents:
 MIT
 
 ## Changelog
+
+### v1.3.0
+- **NEW**: URL purge support - automatically detects URLs starting with `https://` and purges them globally
+- **IMPROVED**: URL purging is now global across Fastly's network, not per-service, for better efficiency
+- **IMPROVED**: Enhanced logging for URL purges to clarify global scope
+- **IMPROVED**: Better validation and warnings when URL is mixed with other keys (ignores extra keys)
+- **TECHNICAL**: Optimized URL purge operations to make only one API call regardless of configured services
+- **TECHNICAL**: Added comprehensive test coverage for URL purge functionality
+- **UPDATED**: CLI help and documentation to clarify URL purge behavior
 
 ### v1.2.0
 - **NEW**: Complete cache purge with `--all` flag - purges entire cache for services without requiring specific keys
