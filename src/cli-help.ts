@@ -44,8 +44,10 @@ export function generateSetupInstructions(): string {
 
   if (status.hasToken && status.hasDevServices) {
     instructions.push(chalk.green('✨ You\'re all set! Try: bleurgh user-123'));
+    instructions.push(chalk.dim('   Or without global install: npx bleurgh user-123'));
   } else {
     instructions.push(chalk.yellow('Once configured, try: bleurgh user-123'));
+    instructions.push(chalk.dim('   Or without global install: npx bleurgh user-123'));
   }
 
   return instructions.join('\n');
@@ -79,6 +81,7 @@ export function generateQuickStartExamples(): string {
   examples.push('bleurgh user-123 --services "custom-svc-1,custom-svc-2"\n');
 
   examples.push(chalk.dim('💡 Use --help-advanced for full documentation'));
+  examples.push(chalk.dim('💡 Run without installing: npx bleurgh <command>'));
 
   return examples.join('\n');
 }
@@ -106,7 +109,8 @@ export function generateAdvancedHelp(): string {
   
   help.push(chalk.yellow('USAGE:'));
   help.push('  bleurgh <keys...> [options]');
-  help.push('  bleurgh --all [options]\n');
+  help.push('  bleurgh --all [options]');
+  help.push('  npx bleurgh <keys...> [options]  # Run without global installation\n');
   
   help.push(chalk.yellow('ARGUMENTS:'));
   help.push('  keys                 Surrogate keys to purge (space-separated)');
@@ -133,7 +137,8 @@ export function generateAdvancedHelp(): string {
   help.push('  bleurgh user-123 --env prod                # Purge in production');
   help.push('  bleurgh user-123 --dry-run                 # Test without purging');
   help.push('  bleurgh user-123 --services "svc1,svc2"    # Override services');
-  help.push('  bleurgh --setup eyJ0b2tlbjp0ZXN0fQ==       # Configure from setup string\n');
+  help.push('  bleurgh --setup eyJ0b2tlbjp0ZXN0fQ==       # Configure from setup string');
+  help.push('  npx bleurgh user-123 --dry-run             # Run without global install\n');
   
   help.push(chalk.yellow('ENVIRONMENT VARIABLES:'));
   help.push('  FASTLY_TOKEN                 Your Fastly API token (required)');

@@ -600,6 +600,14 @@ The CLI automatically detects and prevents:
 
 ## Support & Community
 
+### Getting Help
+
+**Need assistance running bleurgh?** 
+- 📖 Check out [`.ai-instructions.md`](./.ai-instructions.md) - comprehensive guide for AI assistants helping with setup and troubleshooting
+- 🚀 Quick start: See the "Quick Start" section above for step-by-step setup
+- ❓ Common issues: Most problems are related to missing `FASTLY_TOKEN` or service ID configuration
+
+**For developers and contributors:**
 - 🐛 [Report Issues](https://github.com/barlind/bleurgh/issues)
 - 📖 [Documentation](https://github.com/barlind/bleurgh)
 - 💬 [Discussions](https://github.com/barlind/bleurgh/discussions)
