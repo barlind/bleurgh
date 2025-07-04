@@ -1,5 +1,11 @@
 # Bleurgh
 
+[![CI](https://github.com/barlind/bleurgh/workflows/CI/badge.svg)](https://github.com/barlind/bleurgh/actions/workflows/ci.yml)
+[![Security](https://github.com/barlind/bleurgh/workflows/Security/badge.svg)](https://github.com/barlind/bleurgh/actions/workflows/security.yml)
+[![npm version](https://badge.fury.io/js/bleurgh.svg)](https://badge.fury.io/js/bleurgh)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+
 A powerful command-line tool for purging Fastly cache by surrogate keys across multiple environments and services.
 
 ## Features

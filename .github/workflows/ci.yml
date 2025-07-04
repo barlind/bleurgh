@@ -39,23 +39,25 @@ jobs:
       - name: Test CLI version
         run: node dist/index.js --version
         
-      - name: Test dry run (should fail without token)
+      - name: Test that missing token is detected (without dry run)
         run: |
-          if node dist/index.js test-key --dry-run; then
+          if node dist/index.js test-key --services test-svc-1; then
             echo "Should have failed without FASTLY_TOKEN"
             exit 1
           else
             echo "Correctly failed without FASTLY_TOKEN"
           fi
           
-      - name: Test dry run with dummy token
+      - name: Test dry run with dummy token and service IDs
         env:
           FASTLY_TOKEN: dummy-token
+          FASTLY_DEV_SERVICE_IDS: test-svc-1,test-svc-2
         run: node dist/index.js test-key --dry-run --verbose
         
       - name: Test multiple keys
         env:
           FASTLY_TOKEN: dummy-token
+          FASTLY_DEV_SERVICE_IDS: test-svc-1,test-svc-2
         run: node dist/index.js key1 key2 key3 --dry-run --verbose
         
       - name: Test services override

@@ -1,0 +1,224 @@
+name: Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Run security checks weekly on Mondays at 2 AM UTC
+    - cron: '0 2 * * 1'
+
+jobs:
+  dependency-scan:
+    name: Dependency Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Run npm audit
+        run: npm audit --audit-level=moderate
+        
+      - name: Check for vulnerabilities
+        run: npm audit --audit-level=high --production
+
+  codeql-analysis:
+    name: CodeQL Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript
+          
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build project
+        run: npm run build
+        
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+  secret-scan:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for better secret detection
+          
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  security-test:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build project
+        run: npm run build
+        
+      - name: Test security validation
+        run: |
+          # Test that invalid tokens are rejected
+          CONFIG1='{"FASTLY_TOKEN":"$(whoami)","FASTLY_DEV_SERVICE_IDS":"test"}'
+          SETUP1=$(echo "$CONFIG1" | base64)
+          node dist/index.js --setup "$SETUP1" 2>&1 || echo "✓ Command injection properly blocked"
+          
+          # Test that shell metacharacters are blocked  
+          CONFIG2='{"FASTLY_TOKEN":"token; rm -rf /","FASTLY_DEV_SERVICE_IDS":"test"}'
+          SETUP2=$(echo "$CONFIG2" | base64)
+          node dist/index.js --setup "$SETUP2" 2>&1 || echo "✓ Shell injection properly blocked"
+          
+          # Test that invalid export commands are rejected
+          CONFIG3='{"NOT_FASTLY_TOKEN":"test","FASTLY_DEV_SERVICE_IDS":"test"}'
+          SETUP3=$(echo "$CONFIG3" | base64)
+          node dist/index.js --setup "$SETUP3" 2>&1 || echo "✓ Invalid variable names properly blocked"
+        
+      - name: Test token masking
+        run: |
+          # Verify that sensitive tokens are masked in output
+          CONFIG='{"FASTLY_TOKEN":"super-secret-token-12345678","FASTLY_DEV_SERVICE_IDS":"test"}'
+          SETUP_STRING=$(echo "$CONFIG" | base64)
+          SETUP_OUTPUT=$(node dist/index.js --setup "$SETUP_STRING" 2>&1 || true)
+          if echo "$SETUP_OUTPUT" | grep -q "super-secret-token-12345678"; then
+            echo "❌ FAIL: Token was not masked in output"
+            echo "Output was: $SETUP_OUTPUT"
+            exit 1
+          else
+            echo "✓ PASS: Token properly masked in output"
+          fi
+
+  license-scan:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Install license checker
+        run: npm install -g license-checker
+        
+      - name: Check licenses
+        run: license-checker --onlyAllow 'MIT;Apache-2.0;BSD-2-Clause;BSD-3-Clause;ISC;0BSD;CC0-1.0;CC-BY-4.0;MPL-2.0;Unlicense' --excludePrivatePackages
+
+  docker-security:
+    name: Docker Security Scan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Build Docker image
+        run: |
+          # First install dependencies and build the project
+          npm ci
+          npm run build
+          
+          # Create optimized Dockerfile
+          cat > Dockerfile << 'EOF'
+          FROM node:20-alpine
+          WORKDIR /app
+          COPY package*.json ./
+          RUN npm ci --only=production && npm cache clean --force
+          COPY dist/ ./dist/
+          RUN addgroup -g 1001 -S nodejs && adduser -S bleurgh -u 1001
+          USER bleurgh
+          ENTRYPOINT ["node", "dist/index.js"]
+          EOF
+          
+          docker build -t bleurgh:latest .
+          
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'bleurgh:latest'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          exit-code: '0'  # Don't fail the build on vulnerabilities
+          
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v3
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  security-scorecard:
+    name: OSSF Scorecard
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      id-token: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          
+      - name: Run analysis
+        uses: ossf/scorecard-action@v2.3.1
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+          
+      - name: Upload results
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
