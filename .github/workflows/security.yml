@@ -9,6 +9,11 @@ on:
     # Run security checks weekly on Mondays at 2 AM UTC
     - cron: '0 2 * * 1'
 
+permissions:
+  actions: read
+  contents: read
+  security-events: write
+
 jobs:
   dependency-scan:
     name: Dependency Security Scan
@@ -159,6 +164,14 @@ jobs:
     name: Docker Security Scan
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     
     steps:
       - name: Checkout code
@@ -192,11 +205,34 @@ jobs:
           output: 'trivy-results.sarif'
           exit-code: '0'  # Don't fail the build on vulnerabilities
           
+      - name: Check SARIF file
+        run: |
+          if [ -f "trivy-results.sarif" ]; then
+            echo "SARIF file created successfully"
+            echo "File size: $(wc -c < trivy-results.sarif) bytes"
+            # Show first few lines for debugging
+            echo "First 10 lines of SARIF file:"
+            head -10 trivy-results.sarif || true
+          else
+            echo "SARIF file not found"
+            ls -la . || true
+          fi
+          
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@v3
         if: always() && hashFiles('trivy-results.sarif') != ''
         with:
           sarif_file: 'trivy-results.sarif'
+        continue-on-error: true  # Don't fail the build if upload fails
+        
+      - name: Display scan results (fallback)
+        if: always() && hashFiles('trivy-results.sarif') != ''
+        run: |
+          echo "Security scan completed. If upload failed, here are the key findings:"
+          # Run Trivy again in table format for readable output
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ github.workspace }}:/workspace" \
+            aquasec/trivy image --format table bleurgh:latest || true
 
   security-scorecard:
     name: OSSF Scorecard
@@ -222,3 +258,4 @@ jobs:
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: results.sarif
+        continue-on-error: true  # Don't fail the build if upload fails
