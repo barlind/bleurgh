@@ -12,22 +12,21 @@ describe('Setup Functionality Tests', () => {
     // Reset logger mocks
     Object.values(mockLogger).forEach(fn => fn.mockReset());
     
-    // Clear environment variables
-    delete process.env.FASTLY_TOKEN;
-    delete process.env.FASTLY_DEV_SERVICE_IDS;
-    delete process.env.FASTLY_TEST_SERVICE_IDS;
-    delete process.env.FASTLY_PROD_SERVICE_IDS;
-    delete process.env.FASTLY_DEFAULT_KEYS;
+    // Clear ALL FASTLY_* environment variables that might interfere with tests
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('FASTLY_')) {
+        delete process.env[key];
+      }
+    }
   });
 
   describe('encodeSetupString and decodeSetupString', () => {
     test('should encode and decode configuration correctly', () => {
       const config = {
-        fastlyToken: 'test-token-123',
-        devServiceIds: 'dev-svc-1,dev-svc-2',
-        testServiceIds: 'test-svc-1,test-svc-2',
-        prodServiceIds: 'prod-svc-1,prod-svc-2',
-        defaultKeys: 'global,always,cache'
+        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1,dev-svc-2',
+        'FASTLY_TEST_SERVICE_IDS': 'test-svc-1,test-svc-2',
+        'FASTLY_PROD_SERVICE_IDS': 'prod-svc-1,prod-svc-2',
+        'FASTLY_DEFAULT_KEYS': 'global,always,cache'
       };
 
       const encoded = encodeSetupString(config);
@@ -40,7 +39,7 @@ describe('Setup Functionality Tests', () => {
 
     test('should handle minimal configuration', () => {
       const config = {
-        fastlyToken: 'minimum-token'
+        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1'
       };
 
       const encoded = encodeSetupString(config);
@@ -49,14 +48,15 @@ describe('Setup Functionality Tests', () => {
       expect(decoded).toEqual(config);
     });
 
-    test('should throw error for missing fastlyToken', () => {
-      const invalidConfig = {
-        devServiceIds: 'dev-svc-1'
+    test('should handle minimal configuration', () => {
+      const minimalConfig = {
+        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1'
       };
 
-      const encoded = encodeSetupString(invalidConfig as any);
+      const encoded = encodeSetupString(minimalConfig);
       
-      expect(() => decodeSetupString(encoded)).toThrow('Missing required field: fastlyToken');
+      // Should not throw - minimal config is valid
+      expect(() => decodeSetupString(encoded)).not.toThrow();
     });
 
     test('should throw error for invalid base64', () => {
@@ -72,8 +72,7 @@ describe('Setup Functionality Tests', () => {
   describe('executeSetup', () => {
     test('should show manual setup instructions when allowExecution is false', async () => {
       const config = {
-        fastlyToken: 'test-token',
-        devServiceIds: 'dev-svc-1,dev-svc-2'
+        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1,dev-svc-2'
       };
       const encoded = encodeSetupString(config);
 
@@ -88,8 +87,7 @@ describe('Setup Functionality Tests', () => {
       process.env.FASTLY_TOKEN = 'existing-token';
 
       const config = {
-        fastlyToken: 'test-token',
-        devServiceIds: 'dev-svc-1,dev-svc-2'
+        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1,dev-svc-2'
       };
       const encoded = encodeSetupString(config);
 
@@ -105,8 +103,7 @@ describe('Setup Functionality Tests', () => {
       process.env.FASTLY_TOKEN = 'existing-token';
 
       const config = {
-        fastlyToken: 'test-token',
-        devServiceIds: 'dev-svc-1,dev-svc-2'
+        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1,dev-svc-2'
       };
       const encoded = encodeSetupString(config);
 
@@ -137,11 +134,10 @@ describe('Setup Functionality Tests', () => {
 
     test('should handle configuration with all optional fields', async () => {
       const config = {
-        fastlyToken: 'complete-token',
-        devServiceIds: 'dev-1,dev-2',
-        testServiceIds: 'test-1,test-2',
-        prodServiceIds: 'prod-1,prod-2',
-        defaultKeys: 'custom,keys,here'
+        'FASTLY_DEV_SERVICE_IDS': 'dev-1,dev-2',
+        'FASTLY_TEST_SERVICE_IDS': 'test-1,test-2',
+        'FASTLY_PROD_SERVICE_IDS': 'prod-1,prod-2',
+        'FASTLY_DEFAULT_KEYS': 'custom,keys,here'
       };
       const encoded = encodeSetupString(config);
 
@@ -155,7 +151,7 @@ describe('Setup Functionality Tests', () => {
       // This test verifies that export command validation is integrated
       // by using a configuration that should pass validation
       const config = {
-        fastlyToken: 'test-token'
+        'FASTLY_DEV_SERVICE_IDS': 'dev-service-1'
       };
       const encoded = encodeSetupString(config);
 
@@ -175,7 +171,7 @@ describe('Setup Functionality Tests', () => {
     test('should detect dangerous values with enhanced security validation', () => {
       // Test that our enhanced security validation catches various attack vectors
       const dangerousConfig = {
-        fastlyToken: 'token$(whoami)' // Command substitution
+        'FASTLY_DEV_SERVICE_IDS': 'service$(whoami)' // Command substitution
       };
 
       expect(() => {
@@ -222,7 +218,7 @@ describe('Setup Functionality Tests', () => {
 
       const result = validateExportCommands(invalidCommands);
       expect(result.isValid).toBe(false);
-      expect(result.errors).toContain('Invalid environment variable name: \'MALICIOUS_VAR\' is not in the allowlist');
+      expect(result.errors).toContain('Invalid environment variable name: \'MALICIOUS_VAR\' must start with \'FASTLY_\' and contain only uppercase letters, numbers, and underscores');
     });
 
     test('should reject unsafe values', () => {

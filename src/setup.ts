@@ -4,20 +4,13 @@ import * as os from 'node:os';
 import { Shescape } from 'shescape';
 
 export interface SetupConfig {
-  fastlyToken: string;
-  devServiceIds?: string;
-  testServiceIds?: string;
-  prodServiceIds?: string;
-  devServiceNames?: string;
-  testServiceNames?: string;
-  prodServiceNames?: string;
-  defaultKeys?: string;
+  // Direct mapping of environment variable names to their values
+  [envVarName: string]: string | undefined;
 }
 
 export interface SetupOptions {
   allowExecution: boolean;
   force: boolean;
-  exportToken?: boolean;
   exportKeys?: string[]; // Optional list of specific keys to export
 }
 
@@ -50,8 +43,8 @@ function hasControlCharacters(value: string): boolean {
   for (let i = 0; i < value.length; i++) {
     const code = value.charCodeAt(i);
     // Check for control characters (0-8, 11, 12, 14-31, 127)
-    if ((code >= 0 && code <= 8) || code === 11 || code === 12 || 
-        (code >= 14 && code <= 31) || code === 127) {
+    if ((code >= 0 && code <= 8) || code === 11 || code === 12 ||
+      (code >= 14 && code <= 31) || code === 127) {
       return true;
     }
   }
@@ -70,24 +63,13 @@ const SUSPICIOUS_KEYWORDS = [
   'DROP', 'DELETE', 'TRUNCATE', 'ALTER'
 ];
 
-const VALID_VAR_NAMES = [
-  'FASTLY_TOKEN',
-  'FASTLY_DEV_SERVICE_IDS',
-  'FASTLY_TEST_SERVICE_IDS',
-  'FASTLY_PROD_SERVICE_IDS',
-  'FASTLY_DEV_SERVICE_NAMES',
-  'FASTLY_TEST_SERVICE_NAMES',
-  'FASTLY_PROD_SERVICE_NAMES',
-  'FASTLY_DEFAULT_KEYS'
-];
-
 // Check for dangerous patterns in a value
 function checkDangerousPatterns(value: string, fieldName: string): string[] {
   const errors: string[] = [];
-  
+
   // Service names are allowed to contain spaces
   const isServiceNameField = fieldName.includes('ServiceNames');
-  
+
   for (const [patternName, pattern] of Object.entries(SECURITY_PATTERNS)) {
     // Skip dangerous chars check for service names as they can contain spaces
     if (patternName === 'dangerousChars' && isServiceNameField) {
@@ -100,27 +82,27 @@ function checkDangerousPatterns(value: string, fieldName: string): string[] {
       errors.push(`Security violation in ${fieldName}: contains ${patternName}`);
     }
   }
-  
+
   // Check for control characters
   if (hasControlCharacters(value)) {
     errors.push(`Security violation in ${fieldName}: contains control characters`);
   }
-  
+
   return errors;
 }
 
 // Enhanced shell injection detection using shescape
 function checkShellInjection(value: string, fieldName: string): string[] {
   const errors: string[] = [];
-  
+
   // Service names are allowed to contain spaces and will be properly escaped
   const isServiceNameField = fieldName.includes('ServiceNames');
-  
+
   try {
     // Initialize shescape for the current shell
     const shellPath = process.env.SHELL ?? '/bin/bash';
     const shellName = path.basename(shellPath);
-    
+
     // Map common shell names to shescape-supported names
     const supportedShells: Record<string, string> = {
       'bash': 'bash',
@@ -130,10 +112,10 @@ function checkShellInjection(value: string, fieldName: string): string[] {
       'powershell': 'powershell',
       'pwsh': 'powershell'
     };
-    
+
     const mappedShell = supportedShells[shellName] || 'bash';
     const shescape = new Shescape({ shell: mappedShell });
-    
+
     // If the value needs escaping, it contains shell metacharacters
     const escaped = shescape.escape(value);
     if (escaped !== value && !isServiceNameField) {
@@ -155,7 +137,7 @@ function checkShellInjection(value: string, fieldName: string): string[] {
       errors.push(`Security violation in ${fieldName}: contains potentially dangerous shell characters`);
     }
   }
-  
+
   return errors;
 }
 
@@ -163,42 +145,27 @@ function checkShellInjection(value: string, fieldName: string): string[] {
 function checkSuspiciousKeywords(value: string, fieldName: string): string[] {
   const warnings: string[] = [];
   const lowerValue = value.toLowerCase();
-  
+
   for (const keyword of SUSPICIOUS_KEYWORDS) {
     if (lowerValue.includes(keyword.toLowerCase())) {
       warnings.push(`Suspicious content in ${fieldName}: contains '${keyword}'`);
     }
   }
-  
-  return warnings;
-}
 
-// Validate token format
-function validateTokenFormat(value: string): { errors: string[]; warnings: string[] } {
-  const errors: string[] = [];
-  const warnings: string[] = [];
-  
-  if (!/^[a-zA-Z0-9_-]+$/.test(value)) {
-    errors.push(`Invalid fastlyToken format: should only contain alphanumeric characters, underscores, and hyphens`);
-  }
-  if (value.length < 16) {
-    warnings.push(`fastlyToken seems unusually short (${value.length} characters)`);
-  }
-  
-  return { errors, warnings };
+  return warnings;
 }
 
 // Validate service IDs format
 function validateServiceIdsFormat(fieldName: string, value: string): string[] {
   const errors: string[] = [];
   const serviceIds = value.split(',').map(id => id.trim());
-  
+
   for (const serviceId of serviceIds) {
     if (!/^[a-zA-Z0-9_-]+$/.test(serviceId)) {
       errors.push(`Invalid service ID format in ${fieldName}: '${serviceId}' should only contain alphanumeric characters, underscores, and hyphens`);
     }
   }
-  
+
   return errors;
 }
 
@@ -206,7 +173,7 @@ function validateServiceIdsFormat(fieldName: string, value: string): string[] {
 function validateServiceNamesFormat(fieldName: string, value: string): string[] {
   const errors: string[] = [];
   const serviceNames = value.split(',').map(name => name.trim());
-  
+
   for (const serviceName of serviceNames) {
     // Service names can contain spaces and more characters than IDs
     if (!/^[a-zA-Z0-9\s_-]+$/.test(serviceName)) {
@@ -217,7 +184,7 @@ function validateServiceNamesFormat(fieldName: string, value: string): string[] 
       errors.push(`Empty service name found in ${fieldName}`);
     }
   }
-  
+
   return errors;
 }
 
@@ -225,28 +192,26 @@ function validateServiceNamesFormat(fieldName: string, value: string): string[] 
 function validateKeysFormat(value: string): string[] {
   const errors: string[] = [];
   const keys = value.split(',').map(key => key.trim());
-  
+
   for (const key of keys) {
     if (!/^[a-zA-Z0-9_-]+$/.test(key)) {
       errors.push(`Invalid default key format: '${key}' should only contain alphanumeric characters, underscores, and hyphens`);
     }
   }
-  
+
   return errors;
 }
 
-// Validate field format based on field type
-function validateFieldFormat(fieldName: string, value: string): { errors: string[]; warnings: string[] } {
-  if (fieldName === 'fastlyToken') {
-    return validateTokenFormat(value);
-  } else if (['devServiceIds', 'testServiceIds', 'prodServiceIds'].includes(fieldName)) {
-    return { errors: validateServiceIdsFormat(fieldName, value), warnings: [] };
-  } else if (['devServiceNames', 'testServiceNames', 'prodServiceNames'].includes(fieldName)) {
-    return { errors: validateServiceNamesFormat(fieldName, value), warnings: [] };
-  } else if (fieldName === 'defaultKeys') {
+// Validate field format based on environment variable name
+function validateFieldFormat(envVarName: string, value: string): { errors: string[]; warnings: string[] } {
+  if (envVarName.endsWith('_SERVICE_IDS')) {
+    return { errors: validateServiceIdsFormat(envVarName, value), warnings: [] };
+  } else if (envVarName.endsWith('_SERVICE_NAMES')) {
+    return { errors: validateServiceNamesFormat(envVarName, value), warnings: [] };
+  } else if (envVarName.endsWith('_DEFAULT_KEYS')) {
     return { errors: validateKeysFormat(value), warnings: [] };
   }
-  
+
   return { errors: [], warnings: [] };
 }
 
@@ -258,37 +223,28 @@ export function validateSetupConfig(config: SetupConfig): ValidationResult {
     warnings: []
   };
 
-  const fieldsToValidate = [
-    { name: 'fastlyToken', value: config.fastlyToken, required: true },
-    { name: 'devServiceIds', value: config.devServiceIds, required: false },
-    { name: 'testServiceIds', value: config.testServiceIds, required: false },
-    { name: 'prodServiceIds', value: config.prodServiceIds, required: false },
-    { name: 'devServiceNames', value: config.devServiceNames, required: false },
-    { name: 'testServiceNames', value: config.testServiceNames, required: false },
-    { name: 'prodServiceNames', value: config.prodServiceNames, required: false },
-    { name: 'defaultKeys', value: config.defaultKeys, required: false }
-  ];
+  // Validate all environment variables in the config
+  for (const [envVarName, envVarValue] of Object.entries(config)) {
+    if (!envVarValue) continue;
 
-  for (const field of fieldsToValidate) {
-    if (field.required && !field.value) {
-      result.errors.push(`Missing required field: ${field.name}`);
+    // Validate environment variable name format
+    if (!envVarName.startsWith('FASTLY_') || !/^[A-Z_][A-Z0-9_]*$/.test(envVarName)) {
+      result.errors.push(`Invalid environment variable name: '${envVarName}' must start with 'FASTLY_' and contain only uppercase letters, numbers, and underscores`);
       continue;
     }
 
-    if (!field.value) continue;
-
     // Length check
-    if (field.value.length > 1000) {
-      result.errors.push(`Field ${field.name} exceeds maximum length (1000 characters)`);
+    if (envVarValue.length > 1000) {
+      result.errors.push(`Environment variable ${envVarName} exceeds maximum length (1000 characters)`);
     }
 
     // Security checks
-    result.errors.push(...checkDangerousPatterns(field.value, field.name));
-    result.errors.push(...checkShellInjection(field.value, field.name));
-    result.warnings.push(...checkSuspiciousKeywords(field.value, field.name));
-    
-    // Format validation
-    const formatResult = validateFieldFormat(field.name, field.value);
+    result.errors.push(...checkDangerousPatterns(envVarValue, envVarName));
+    result.errors.push(...checkShellInjection(envVarValue, envVarName));
+    result.warnings.push(...checkSuspiciousKeywords(envVarValue, envVarName));
+
+    // Format validation based on environment variable name
+    const formatResult = validateFieldFormat(envVarName, envVarValue);
     result.errors.push(...formatResult.errors);
     result.warnings.push(...formatResult.warnings);
   }
@@ -317,21 +273,21 @@ export function validateExportCommands(commands: string[]): ValidationResult {
 
     const [, varName, varValue] = match;
 
-    // Validate environment variable name
-    if (!VALID_VAR_NAMES.includes(varName)) {
-      result.errors.push(`Invalid environment variable name: '${varName}' is not in the allowlist`);
+    // Validate environment variable name - support arbitrary FASTLY_* variables
+    if (!varName.startsWith('FASTLY_') || !/^[A-Z_][A-Z0-9_]*$/.test(varName)) {
+      result.errors.push(`Invalid environment variable name: '${varName}' must start with 'FASTLY_' and contain only uppercase letters, numbers, and underscores`);
     }
 
     // Validate that the value doesn't contain unsafe characters
     if (varValue.includes('"') || varValue.includes('\\') || varValue.includes('$')) {
       result.errors.push(`Unsafe value in ${varName}: contains quotes, backslashes, or variable substitution`);
     }
-    
+
     // Enhanced validation: check if the value contains shell metacharacters (not the entire command)
     try {
       const shellPath = process.env.SHELL ?? '/bin/bash';
       const shellName = path.basename(shellPath);
-      
+
       const supportedShells: Record<string, string> = {
         'bash': 'bash',
         'zsh': 'bash',
@@ -340,10 +296,10 @@ export function validateExportCommands(commands: string[]): ValidationResult {
         'powershell': 'powershell',
         'pwsh': 'powershell'
       };
-      
+
       const mappedShell = supportedShells[shellName] || 'bash';
       const shescape = new Shescape({ shell: mappedShell });
-      
+
       // Check if the value itself (not the command) would need escaping
       const escapedValue = shescape.escape(varValue);
       if (escapedValue !== varValue) {
@@ -363,18 +319,18 @@ export function decodeSetupString(encodedConfig: string): SetupConfig {
   try {
     const decoded = Buffer.from(encodedConfig, 'base64').toString('utf-8');
     const config = JSON.parse(decoded);
-    
+
     // Perform security validation
     const validation = validateSetupConfig(config);
     if (!validation.isValid) {
       throw new Error(`Security validation failed: ${validation.errors.join(', ')}`);
     }
-    
+
     // Log warnings if present
     if (validation.warnings.length > 0) {
       console.warn('⚠️  Security warnings:', validation.warnings.join(', '));
     }
-    
+
     return config as SetupConfig;
   } catch (error) {
     throw new Error(`Invalid setup configuration: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -391,14 +347,14 @@ export function encodeSetupString(config: SetupConfig): string {
 function getShellConfigPath(): string {
   const shell = process.env.SHELL ?? '/bin/bash';
   const home = os.homedir();
-  
+
   if (shell.includes('zsh')) {
     return path.join(home, '.zshrc');
   } else if (shell.includes('bash')) {
     // Check for .bash_profile first (macOS convention), then .bashrc
     const bashProfile = path.join(home, '.bash_profile');
     const bashrc = path.join(home, '.bashrc');
-    
+
     if (fs.existsSync(bashProfile)) {
       return bashProfile;
     }
@@ -406,22 +362,18 @@ function getShellConfigPath(): string {
   } else if (shell.includes('fish')) {
     return path.join(home, '.config', 'fish', 'config.fish');
   }
-  
+
   // Default to .bashrc
   return path.join(home, '.bashrc');
 }
 
 // Check if environment variables are already set
 function checkExistingSetup(): { hasSetup: boolean; existingVars: string[] } {
-  const varsToCheck = [
-    'FASTLY_TOKEN',
-    'FASTLY_DEV_SERVICE_IDS',
-    'FASTLY_TEST_SERVICE_IDS', 
-    'FASTLY_PROD_SERVICE_IDS',
-    'FASTLY_DEFAULT_KEYS'
-  ];
+  // Check for any FASTLY_* environment variables
+  const existingVars = Object.keys(process.env).filter(key => 
+    key.startsWith('FASTLY_') && process.env[key]
+  );
   
-  const existingVars = varsToCheck.filter(varName => process.env[varName]);
   return {
     hasSetup: existingVars.length > 0,
     existingVars
@@ -430,51 +382,24 @@ function checkExistingSetup(): { hasSetup: boolean; existingVars: string[] } {
 
 // Generate shell export commands
 // Options:
-//   - exportToken: If true, includes FASTLY_TOKEN in export commands
 //   - exportKeys: Array of specific environment variable names to export (e.g., ['FASTLY_DEV_SERVICE_IDS'])
 //                 If not provided, all available keys will be exported
-function generateExportCommands(config: SetupConfig, options?: { exportToken?: boolean; exportKeys?: string[] }): string[] {
+function generateExportCommands(config: SetupConfig, options?: { exportKeys?: string[] }): string[] {
   const commands: string[] = [];
-  
-  // Only export token if explicitly requested
-  if (options?.exportToken) {
-    commands.push(`export FASTLY_TOKEN="${config.fastlyToken}"`);
-  }
-  
+
   // Helper function to check if a key should be exported
-  const shouldExportKey = (keyName: string): boolean => {
+  const shouldExportKey = (envVarName: string): boolean => {
     if (!options?.exportKeys) return true; // Export all if no filter specified
-    return options.exportKeys.includes(keyName);
+    return options.exportKeys.includes(envVarName);
   };
-  
-  if (config.devServiceIds && shouldExportKey('FASTLY_DEV_SERVICE_IDS')) {
-    commands.push(`export FASTLY_DEV_SERVICE_IDS="${config.devServiceIds}"`);
+
+  // Generate export commands for each environment variable in the config
+  for (const [envVarName, envVarValue] of Object.entries(config)) {
+    if (envVarValue && shouldExportKey(envVarName)) {
+      commands.push(`export ${envVarName}="${envVarValue}"`);
+    }
   }
-  
-  if (config.testServiceIds && shouldExportKey('FASTLY_TEST_SERVICE_IDS')) {
-    commands.push(`export FASTLY_TEST_SERVICE_IDS="${config.testServiceIds}"`);
-  }
-  
-  if (config.prodServiceIds && shouldExportKey('FASTLY_PROD_SERVICE_IDS')) {
-    commands.push(`export FASTLY_PROD_SERVICE_IDS="${config.prodServiceIds}"`);
-  }
-  
-  if (config.devServiceNames && shouldExportKey('FASTLY_DEV_SERVICE_NAMES')) {
-    commands.push(`export FASTLY_DEV_SERVICE_NAMES="${config.devServiceNames}"`);
-  }
-  
-  if (config.testServiceNames && shouldExportKey('FASTLY_TEST_SERVICE_NAMES')) {
-    commands.push(`export FASTLY_TEST_SERVICE_NAMES="${config.testServiceNames}"`);
-  }
-  
-  if (config.prodServiceNames && shouldExportKey('FASTLY_PROD_SERVICE_NAMES')) {
-    commands.push(`export FASTLY_PROD_SERVICE_NAMES="${config.prodServiceNames}"`);
-  }
-  
-  if (config.defaultKeys && shouldExportKey('FASTLY_DEFAULT_KEYS')) {
-    commands.push(`export FASTLY_DEFAULT_KEYS="${config.defaultKeys}"`);
-  }
-  
+
   return commands;
 }
 
@@ -482,12 +407,12 @@ function generateExportCommands(config: SetupConfig, options?: { exportToken?: b
 async function writeToShellConfig(commands: string[], logger: Logger): Promise<void> {
   const configPath = getShellConfigPath();
   const configDir = path.dirname(configPath);
-  
+
   // Ensure config directory exists
   if (!fs.existsSync(configDir)) {
     fs.mkdirSync(configDir, { recursive: true });
   }
-  
+
   const marker = '# bleurgh CLI environment variables';
   const content = [
     '',
@@ -496,7 +421,7 @@ async function writeToShellConfig(commands: string[], logger: Logger): Promise<v
     `# End ${marker}`,
     ''
   ].join('\n');
-  
+
   // Check if already exists
   if (fs.existsSync(configPath)) {
     const existing = fs.readFileSync(configPath, 'utf-8');
@@ -505,7 +430,7 @@ async function writeToShellConfig(commands: string[], logger: Logger): Promise<v
       return;
     }
   }
-  
+
   // Append to config file
   fs.appendFileSync(configPath, content);
   logger.success(`Environment variables added to ${configPath}`);
@@ -518,7 +443,7 @@ export async function executeSetup(
   logger: Logger
 ): Promise<void> {
   logger.info('🚀 Starting bleurgh CLI setup...');
-  
+
   // Decode configuration
   let config: SetupConfig;
   try {
@@ -527,16 +452,16 @@ export async function executeSetup(
     logger.error(`${error instanceof Error ? error.message : 'Unknown error'}`);
     process.exit(1);
   }
-  
+
   // Check existing setup
   const { hasSetup, existingVars } = checkExistingSetup();
-  
+
   if (hasSetup && !options.force) {
     logger.warn('Environment variables already detected:');
     existingVars.forEach(varName => {
       const value = process.env[varName];
-      const maskedValue = varName === 'FASTLY_TOKEN' 
-        ? `${value?.substring(0, 8)}...` 
+      const maskedValue = varName === 'FASTLY_TOKEN'
+        ? `${value?.substring(0, 8)}...`
         : value;
       logger.info(`  ${varName}=${maskedValue}`);
     });
@@ -545,13 +470,12 @@ export async function executeSetup(
     logger.info('Or manually check your shell configuration files');
     return;
   }
-  
+
   // Generate export commands
   const exportCommands = generateExportCommands(config, {
-    exportToken: options.exportToken,
     exportKeys: options.exportKeys
   });
-  
+
   // Validate export commands for additional security
   const commandValidation = validateExportCommands(exportCommands);
   if (!commandValidation.isValid) {
@@ -559,12 +483,12 @@ export async function executeSetup(
     commandValidation.errors.forEach(error => logger.error(`  ${error}`));
     process.exit(1);
   }
-  
+
   // Log warnings if present
   if (commandValidation.warnings.length > 0) {
     commandValidation.warnings.forEach(warning => logger.warn(`⚠️  ${warning}`));
   }
-  
+
   if (!options.allowExecution) {
     // Manual setup mode - show copy-pasteable instructions
     logger.info('📋 Copy and paste the following commands to your terminal:');
@@ -602,34 +526,84 @@ export async function executeSetup(
   }
 }
 
-// Utility function to generate setup string for administrators
+// Enhanced utility function to generate setup string for administrators
+// Uses actual environment variable values and supports arbitrary environment key names
 export function generateSetupString(
-  config: SetupConfig, 
-  options?: { exportToken?: boolean; exportKeys?: string[] }
+  environmentKeysToExport?: string[]
 ): string {
-  const encoded = encodeSetupString(config);
-  
   console.log('📦 Bleurgh CLI Setup Configuration');
   console.log('');
-  
-  // Show what will be exported
-  const willExportToken = options?.exportToken || false;
-  
-  console.log('This setup will export:');
-  if (willExportToken) {
-    console.log('  ✅ FASTLY_TOKEN (--export-token specified)');
-  } else {
-    console.log('  ❌ FASTLY_TOKEN (use --export-token to include)');
+
+  const result = buildConfigFromEnvironment(environmentKeysToExport);
+  const encoded = encodeSetupString(result.exportConfig);
+
+  displayExportSummary(result.exportableVars);
+  displaySetupInstructions(encoded, result.exportableVars);
+
+  return encoded;
+}
+
+// Helper function to build config from environment variables
+function buildConfigFromEnvironment(environmentKeysToExport?: string[]) {
+  // Determine which environment keys to export
+  const defaultFastlyKeys = [
+    'FASTLY_DEV_SERVICE_IDS',
+    'FASTLY_DEV_SERVICE_NAMES', 
+    'FASTLY_TEST_SERVICE_IDS',
+    'FASTLY_TEST_SERVICE_NAMES',
+    'FASTLY_PROD_SERVICE_IDS',
+    'FASTLY_PROD_SERVICE_NAMES',
+    'FASTLY_DEFAULT_KEYS'
+  ];
+
+  const keysToExport = environmentKeysToExport ?? defaultFastlyKeys;
+
+  // Build config object from actual environment values
+  const config: SetupConfig = {};
+
+  // Collect values that will actually be exported
+  const exportableVars: Array<{ key: string; value: string }> = [];
+
+  for (const envKey of keysToExport) {
+    const envValue = process.env[envKey];
+    if (envValue) {
+      exportableVars.push({ key: envKey, value: envValue });
+      // Store directly using the environment variable name as the key
+      config[envKey] = envValue;
+    }
   }
+
+  return { exportConfig: config, exportableVars };
+}
+
+// Helper function to display export summary
+function displayExportSummary(exportableVars: Array<{ key: string; value: string }>) {
+  console.log('This setup will export:');
+  console.log('  ❌ FASTLY_TOKEN (never included in setup strings for security)');
+  console.log('  📋 Environment variables:');
   
-  if (options?.exportKeys) {
-    console.log('  📋 Selected keys:');
-    options.exportKeys.forEach(key => console.log(`     ✅ ${key}`));
+  if (exportableVars.length === 0) {
+    console.log('     ⚠️  No environment variables found to export');
+    console.log('     💡 Set environment variables first, then run this command');
   } else {
-    console.log('  📋 All available service and default keys');
+    for (const { key, value } of exportableVars) {
+      console.log(`     ✅ ${key}="${value}"`);
+    }
   }
   console.log('');
-  
+}
+
+// Helper function to display setup instructions
+function displaySetupInstructions(encoded: string, exportableVars: Array<{ key: string; value: string }>) {
+  if (exportableVars.length > 0) {
+    displaySuccessInstructions(encoded);
+  } else {
+    displayNoVariablesInstructions();
+  }
+}
+
+// Helper function to display instructions when variables are found
+function displaySuccessInstructions(encoded: string) {
   console.log('Share this setup string with your team:');
   console.log('');
   console.log(`bleurgh --setup ${encoded}`);
@@ -637,6 +611,19 @@ export function generateSetupString(
   console.log('Or for automatic setup:');
   console.log(`bleurgh --setup ${encoded} --allow-execution`);
   console.log('');
-  
-  return encoded;
+  console.log('💡 Note: Recipients will need to set FASTLY_TOKEN separately for security');
+  console.log('');
+}
+
+// Helper function to display instructions when no variables are found
+function displayNoVariablesInstructions() {
+  console.log('❌ Cannot generate setup string: no environment variables to export');
+  console.log('');
+  console.log('First set your environment variables, for example:');
+  console.log('  export FASTLY_DEV_SERVICE_IDS="service1,service2"');
+  console.log('  export FASTLY_PROD_SERVICE_IDS="prod-service1"');
+  console.log('  export FASTLY_DEFAULT_KEYS="all"');
+  console.log('');
+  console.log('Then run this command again.');
+  console.log('');
 }

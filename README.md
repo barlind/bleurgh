@@ -43,38 +43,40 @@ A powerful command-line tool for purging Fastly cache by surrogate keys across m
 Generate setup strings for your team using the built-in generator:
 
 ```bash
-# Create a setup configuration (without token export for security)
-npx tsx scripts/generate-setup.ts
+# First, set your environment variables (examples below)
+export FASTLY_DEV_SERVICE_IDS="dev-svc-1,dev-svc-2"
+export FASTLY_TEST_SERVICE_IDS="test-svc-1,test-svc-2" 
+export FASTLY_PROD_SERVICE_IDS="prod-svc-1,prod-svc-2"
+export FASTLY_DEFAULT_KEYS="global,always"
 
-# Or manually create a configuration
+# Optionally add friendly names for your ids
+export FASTLY_DEV_SERVICE_NAMES="www-dev,backend-dev"
+export FASTLY_TEST_SERVICE_NAMES="www-test,backend-test" 
+export FASTLY_PROD_SERVICE_NAMES="www,backend"
+
+# Generate setup string from your current environment
 node -e "
 const { generateSetupString } = require('./dist/setup.js');
-const config = {
-  fastlyToken: 'your-team-token',
-  devServiceIds: 'dev-svc-1,dev-svc-2',
-  testServiceIds: 'test-svc-1,test-svc-2', 
-  prodServiceIds: 'prod-svc-1,prod-svc-2',
-  defaultKeys: 'global,always'
-};
 
-// Basic setup (no token export for security)
-generateSetupString(config);
+// Generate setup with all currently set FASTLY_* environment variables
+generateSetupString();
 
-// Or with token export (use cautiously)
-generateSetupString(config, { exportToken: true });
+// Or specify which environment variables to export
+// generateSetupString(['FASTLY_DEV_SERVICE_IDS', 'FASTLY_TEST_SERVICE_IDS']);
 
-// Or selective export (specific environments only)
-generateSetupString(config, { 
-  exportToken: false,
-  exportKeys: ['FASTLY_DEV_SERVICE_IDS', 'FASTLY_TEST_SERVICE_IDS'] 
-});
+// Or include custom environment variable names (any keys)
+// generateSetupString(['FASTLY_STAGE_SERVICE_IDS', 'FASTLY_QA_SERVICE_IDS']);
 "
-```
+
+**Security Note**: The `generateSetupString()` function **never** includes `FASTLY_TOKEN` in setup strings for security. Recipients must set their own tokens separately.
 
 Share the generated base64 string with your team:
 ```bash
 # Team members run this:
 bleurgh --setup <base64-string>
+
+# Team members also need to set their own token:
+export FASTLY_TOKEN="their-individual-token"
 
 # Or for automatic setup:
 bleurgh --setup <base64-string> --allow-execution
@@ -127,6 +129,8 @@ bleurgh user-123 --env dev
 ```bash
 export FASTLY_TOKEN="your-fastly-api-token"
 export FASTLY_DEV_SERVICE_IDS="dev-service-1,dev-service-2"
+#optional friendly name for ids
+export FASTLY_DEV_SERVICE_NAMES="www, backend"
 ```
 
 ## Basic Usage

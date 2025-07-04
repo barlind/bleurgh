@@ -85,3 +85,4 @@ build/
 ehthumbs.db
 Thumbs.db
 PUBLISH_CHECKLIST.md
+scripts/generate-setup.ts
