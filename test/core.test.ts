@@ -7,10 +7,8 @@ describe('Core Logic Tests', () => {
   beforeEach(() => {
     // Clear all environment variables before each test
     delete process.env.FASTLY_DEV_SERVICE_IDS;
-    delete process.env.FASTLY_DEVSERVICE_IDS;
     delete process.env.DEV_SERVICE_IDS;
     delete process.env.SERVICE_IDS_DEV;
-    delete process.env.FASTLY_SERVICES_DEV;
     delete process.env.FASTLY_TEST_SERVICE_IDS;
     delete process.env.FASTLY_PROD_SERVICE_IDS;
     delete process.env.FASTLY_DEFAULT_KEYS;
@@ -51,12 +49,6 @@ describe('Core Logic Tests', () => {
       expect(result).toEqual(['env-service1', 'env-service2']);
     });
 
-    test('should use FASTLY_DEVSERVICE_IDS environment variable as fallback', () => {
-      process.env.FASTLY_DEVSERVICE_IDS = 'fallback-service1,fallback-service2';
-      const result = getServiceIds('dev');
-      expect(result).toEqual(['fallback-service1', 'fallback-service2']);
-    });
-
     test('should use DEV_SERVICE_IDS environment variable as fallback', () => {
       process.env.DEV_SERVICE_IDS = 'alt-service1,alt-service2';
       const result = getServiceIds('dev');
@@ -69,16 +61,10 @@ describe('Core Logic Tests', () => {
       expect(result).toEqual(['pattern-service1', 'pattern-service2']);
     });
 
-    test('should use FASTLY_SERVICES_DEV environment variable as fallback', () => {
-      process.env.FASTLY_SERVICES_DEV = 'final-service1,final-service2';
-      const result = getServiceIds('dev');
-      expect(result).toEqual(['final-service1', 'final-service2']);
-    });
-
     test('should prioritize first found environment variable', () => {
       process.env.FASTLY_DEV_SERVICE_IDS = 'first-service';
-      process.env.FASTLY_DEVSERVICE_IDS = 'second-service';
-      process.env.DEV_SERVICE_IDS = 'third-service';
+      process.env.DEV_SERVICE_IDS = 'second-service';
+      process.env.SERVICE_IDS_DEV = 'third-service';
       
       const result = getServiceIds('dev');
       expect(result).toEqual(['first-service']);

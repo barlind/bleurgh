@@ -429,7 +429,8 @@ function displaySetupDiff(
   if (analysis.newVars.length > 0) {
     logger.info('📝 New environment variables to be set:');
     analysis.newVars.forEach(({ key, value }) => {
-      logger.info(chalk.green(`  + ${key}="${value}"`));
+      const displayValue = maskSensitiveValue(key, value);
+      logger.info(chalk.green(`  + ${key}="${displayValue}"`));
     });
     logger.info('');
   }
@@ -437,8 +438,10 @@ function displaySetupDiff(
   if (analysis.changedVars.length > 0) {
     logger.warn('🔄 Environment variables that would be changed:');
     analysis.changedVars.forEach(({ key, oldValue, newValue }) => {
-      logger.info(chalk.red(`  - ${key}="${oldValue}"`));
-      logger.info(chalk.green(`  + ${key}="${newValue}"`));
+      const displayOldValue = maskSensitiveValue(key, oldValue);
+      const displayNewValue = maskSensitiveValue(key, newValue);
+      logger.info(chalk.red(`  - ${key}="${displayOldValue}"`));
+      logger.info(chalk.green(`  + ${key}="${displayNewValue}"`));
     });
     logger.info('');
   }
@@ -446,7 +449,8 @@ function displaySetupDiff(
   if (analysis.unchangedVars.length > 0) {
     logger.info('✅ Environment variables that would remain unchanged:');
     analysis.unchangedVars.forEach(({ key, value }) => {
-      logger.info(chalk.dim(`    ${key}="${value}"`));
+      const displayValue = maskSensitiveValue(key, value);
+      logger.info(chalk.dim(`    ${key}="${displayValue}"`));
     });
     logger.info('');
   }
@@ -546,7 +550,7 @@ export async function executeSetup(
     logger.warn('🔍 Analyzing current environment setup...');
     logger.info('');
     
-    await displaySetupDiff(analysis, logger, options.allowExecution);
+    displaySetupDiff(analysis, logger, options.allowExecution);
     
     if (options.allowExecution) {
       logger.info('');
@@ -561,7 +565,7 @@ export async function executeSetup(
   if (analysis.hasExisting && analysis.changedVars.length === 0) {
     logger.info('🔍 Analyzing current environment setup...');
     logger.info('');
-    await displaySetupDiff(analysis, logger, options.allowExecution);
+    displaySetupDiff(analysis, logger, options.allowExecution);
     logger.info('');
   }
 
@@ -588,7 +592,8 @@ export async function executeSetup(
     logger.info('📋 Copy and paste the following commands to your terminal:');
     logger.info('');
     exportCommands.forEach(cmd => {
-      console.log(`  ${cmd}`);
+      const maskedCmd = maskExportCommand(cmd);
+      console.log(`  ${maskedCmd}`);
     });
     logger.info('');
     logger.info('Or add them to your shell configuration file:');
@@ -613,7 +618,8 @@ export async function executeSetup(
       logger.info('');
       logger.info('You can set up manually by running:');
       exportCommands.forEach(cmd => {
-        console.log(`  ${cmd}`);
+        const maskedCmd = maskExportCommand(cmd);
+        console.log(`  ${maskedCmd}`);
       });
       process.exit(1);
     }
@@ -684,7 +690,8 @@ function displayExportSummary(exportableVars: Array<{ key: string; value: string
     console.log('     💡 Set environment variables first, then run this command');
   } else {
     for (const { key, value } of exportableVars) {
-      console.log(`     ✅ ${key}="${value}"`);
+      const maskedValue = maskSensitiveValue(key, value);
+      console.log(`     ✅ ${key}="${maskedValue}"`);
     }
   }
   console.log('');
@@ -723,4 +730,51 @@ function displayNoVariablesInstructions() {
   console.log('');
   console.log('Then run this command again.');
   console.log('');
+}
+
+// Function to mask sensitive environment variable values for display
+function maskSensitiveValue(key: string, value: string): string {
+  // List of sensitive environment variable patterns
+  const sensitivePatterns = [
+    /^FASTLY_TOKEN$/i,
+    /^FASTLY_API_/i,
+    /^FASTLY_KEY_/i,
+    /_TOKEN$/i,
+    /_SECRET$/i,
+    /_PASSWORD$/i,
+    /_KEY$/i,
+    /^API_/i,
+    /^SECRET_/i,
+    /^PASSWORD_/i
+  ];
+
+  // Check if this is a sensitive variable
+  const isSensitive = sensitivePatterns.some(pattern => pattern.test(key));
+  
+  if (isSensitive) {
+    // Show first 4 and last 4 characters with asterisks in between
+    if (value.length <= 8) {
+      return '***';
+    } else {
+      return `${value.substring(0, 4)}${'*'.repeat(Math.max(4, value.length - 8))}${value.substring(value.length - 4)}`;
+    }
+  }
+  
+  return value;
+}
+
+// Function to mask sensitive values in export commands for display
+function maskExportCommand(command: string): string {
+  // Parse the command to extract the variable name and value
+  const exportPattern = /^export\s+([A-Z_][A-Z0-9_]*)\s*=\s*"([^"]*)"$/;
+  const match = exportPattern.exec(command);
+  
+  if (!match) {
+    return command; // Return as-is if it doesn't match the expected pattern
+  }
+  
+  const [, varName, varValue] = match;
+  const maskedValue = maskSensitiveValue(varName, varValue);
+  
+  return `export ${varName}="${maskedValue}"`;
 }

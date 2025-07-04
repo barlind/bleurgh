@@ -13,6 +13,23 @@ export function generateSetupInstructions(): string {
 
   instructions.push(chalk.yellow('🚀 Welcome to bleurgh! Let\'s get you set up.\n'));
 
+  // Add token setup instructions
+  addTokenInstructions(instructions, status);
+  
+  // Add service IDs setup instructions
+  addServiceIdInstructions(instructions, status);
+  
+  // Add default keys setup instructions
+  addDefaultKeysInstructions(instructions, status);
+
+  // Add final instructions
+  addFinalInstructions(instructions, status);
+
+  return instructions.join('\n');
+}
+
+// Helper function for token setup instructions
+function addTokenInstructions(instructions: string[], status: ReturnType<typeof getSetupStatus>): void {
   if (!status.hasToken) {
     instructions.push(chalk.red('❌ Missing Fastly API Token'));
     instructions.push('First, get your Fastly API token from: https://manage.fastly.com/account/personal/tokens');
@@ -21,27 +38,68 @@ export function generateSetupInstructions(): string {
   } else {
     instructions.push(chalk.green('✅ Fastly API Token configured'));
   }
+}
 
+// Helper function for service IDs setup instructions
+function addServiceIdInstructions(instructions: string[], status: ReturnType<typeof getSetupStatus>): void {
   if (!status.hasDevServices) {
     instructions.push(chalk.red('❌ Missing service IDs for default environment (dev)'));
     instructions.push('Set your development service IDs:\n');
     instructions.push(chalk.cyan('export FASTLY_DEV_SERVICE_IDS="service-id-1,service-id-2"\n'));
     
-    instructions.push('For other environments, use these patterns:');
+    instructions.push('For additional environments, use these patterns:');
     instructions.push(chalk.dim('  FASTLY_TEST_SERVICE_IDS="test-svc-1,test-svc-2"'));
     instructions.push(chalk.dim('  FASTLY_PROD_SERVICE_IDS="prod-svc-1,prod-svc-2"\n'));
   } else {
     instructions.push(chalk.green('✅ Development service IDs configured'));
+    
+    // Check for other environments
+    if (!status.hasTestServices && !status.hasProdServices) {
+      instructions.push(chalk.yellow('💡 Consider setting up other environments:'));
+      instructions.push(chalk.dim('  FASTLY_TEST_SERVICE_IDS="test-svc-1,test-svc-2"'));
+      instructions.push(chalk.dim('  FASTLY_PROD_SERVICE_IDS="prod-svc-1,prod-svc-2"\n'));
+    } else {
+      if (status.hasTestServices) {
+        instructions.push(chalk.green('✅ Test service IDs configured'));
+      }
+      if (status.hasProdServices) {
+        instructions.push(chalk.green('✅ Production service IDs configured'));
+      }
+    }
   }
+}
 
-  if (!status.hasDefaultKeys && !status.hasDevDefaultKeys) {
+// Helper function for default keys setup instructions
+function addDefaultKeysInstructions(instructions: string[], status: ReturnType<typeof getSetupStatus>): void {
+  const hasAnyDefaultKeys = status.hasDefaultKeys || status.hasDevDefaultKeys || 
+                           status.hasTestDefaultKeys || status.hasProdDefaultKeys;
+  
+  if (!hasAnyDefaultKeys) {
     instructions.push(chalk.yellow('💡 Optional: Set default cache keys that are always purged:'));
     instructions.push(chalk.cyan('export FASTLY_DEFAULT_KEYS="global,always,common"'));
     instructions.push(chalk.cyan('# Or set environment-specific defaults:'));
     instructions.push(chalk.cyan('export FASTLY_DEV_DEFAULT_KEYS="dev-global,dev-always"'));
+    instructions.push(chalk.cyan('export FASTLY_TEST_DEFAULT_KEYS="test-global,test-always"'));
     instructions.push(chalk.cyan('export FASTLY_PROD_DEFAULT_KEYS="prod-global,prod-always"\n'));
+  } else {
+    if (status.hasDefaultKeys) {
+      instructions.push(chalk.green('✅ Global default keys configured'));
+    }
+    if (status.hasDevDefaultKeys) {
+      instructions.push(chalk.green('✅ Development default keys configured'));
+    }
+    if (status.hasTestDefaultKeys) {
+      instructions.push(chalk.green('✅ Test default keys configured'));
+    }
+    if (status.hasProdDefaultKeys) {
+      instructions.push(chalk.green('✅ Production default keys configured'));
+    }
+    instructions.push('');
   }
+}
 
+// Helper function for final setup instructions
+function addFinalInstructions(instructions: string[], status: ReturnType<typeof getSetupStatus>): void {
   instructions.push(chalk.blue('📝 Add these to your shell configuration file (~/.zshrc, ~/.bashrc, etc.)'));
   instructions.push(chalk.blue('Then reload your shell: source ~/.zshrc\n'));
 
@@ -52,8 +110,6 @@ export function generateSetupInstructions(): string {
     instructions.push(chalk.yellow('Once configured, try: bleurgh user-123'));
     instructions.push(chalk.dim('   Or without global install: npx bleurgh user-123'));
   }
-
-  return instructions.join('\n');
 }
 
 // Generate quick start examples for configured users
@@ -145,18 +201,19 @@ export function generateAdvancedHelp(): string {
   
   help.push(chalk.yellow('ENVIRONMENT VARIABLES:'));
   help.push('  FASTLY_TOKEN                 Your Fastly API token (required)');
-  help.push('  FASTLY_DEV_SERVICE_IDS       Development service IDs');
-  help.push('  FASTLY_TEST_SERVICE_IDS      Test service IDs');
-  help.push('  FASTLY_PROD_SERVICE_IDS      Production service IDs');
+  help.push('  FASTLY_DEV_SERVICE_IDS       Development service IDs (preferred)');
+  help.push('  FASTLY_TEST_SERVICE_IDS      Test service IDs (preferred)');
+  help.push('  FASTLY_PROD_SERVICE_IDS      Production service IDs (preferred)');
   help.push('  FASTLY_DEFAULT_KEYS          Global default keys always included in purge');
   help.push('  FASTLY_{ENV}_DEFAULT_KEYS    Environment-specific default keys (overrides global)\n');
   
   help.push(chalk.yellow('ENVIRONMENT SETUP:'));
   help.push('The CLI supports multiple naming patterns for service IDs:');
   help.push('  FASTLY_<ENV>_SERVICE_IDS     # Preferred: FASTLY_DEV_SERVICE_IDS');
-  help.push('  <ENV>_SERVICE_IDS           # Alternative: DEV_SERVICE_IDS');
-  help.push('  SERVICE_IDS_<ENV>           # Reverse: SERVICE_IDS_DEV');
-  help.push('  FASTLY_SERVICES_<ENV>       # Alternative: FASTLY_SERVICES_DEV\n');
+  help.push('  <ENV>_SERVICE_IDS           # Legacy fallback: DEV_SERVICE_IDS');
+  help.push('  SERVICE_IDS_<ENV>           # Legacy fallback: SERVICE_IDS_DEV');
+  help.push('');
+  help.push('Note: Only FASTLY_* prefixed variables can be used with --setup commands.\n');
   
   help.push(chalk.dim('For more information, visit: https://github.com/barlind/bleurgh'));
   

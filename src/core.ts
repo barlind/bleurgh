@@ -32,14 +32,22 @@ export const hasBasicSetup = (): boolean => {
 export const getSetupStatus = () => {
     const hasToken = !!process.env.FASTLY_TOKEN;
     const hasDevServices = getServiceIds('dev', undefined, false).length > 0;
+    const hasTestServices = getServiceIds('test', undefined, false).length > 0;
+    const hasProdServices = getServiceIds('prod', undefined, false).length > 0;
     const hasDefaultKeys = !!process.env.FASTLY_DEFAULT_KEYS;
     const hasDevDefaultKeys = !!process.env.FASTLY_DEV_DEFAULT_KEYS;
+    const hasTestDefaultKeys = !!process.env.FASTLY_TEST_DEFAULT_KEYS;
+    const hasProdDefaultKeys = !!process.env.FASTLY_PROD_DEFAULT_KEYS;
     
     return {
         hasToken,
         hasDevServices,
+        hasTestServices,
+        hasProdServices,
         hasDefaultKeys,
         hasDevDefaultKeys,
+        hasTestDefaultKeys,
+        hasProdDefaultKeys,
         isComplete: hasToken && hasDevServices
     };
 };
@@ -56,12 +64,11 @@ export const getServiceIds = (env: Env, servicesOverride?: string, throwOnEmpty 
     }
 
     // Try multiple environment variable patterns for flexibility
+    // Prioritize FASTLY_ prefixed variables (required by setup system)
     const envPatterns = [
-        `FASTLY_${env.toUpperCase()}_SERVICE_IDS`,  // FASTLY_DEV_SERVICE_IDS
-        `FASTLY_${env.toUpperCase()}SERVICE_IDS`,   // FASTLY_DEVSERVICE_IDS
-        `${env.toUpperCase()}_SERVICE_IDS`,         // DEV_SERVICE_IDS
-        `SERVICE_IDS_${env.toUpperCase()}`,         // SERVICE_IDS_DEV
-        `FASTLY_SERVICES_${env.toUpperCase()}`,     // FASTLY_SERVICES_DEV
+        `FASTLY_${env.toUpperCase()}_SERVICE_IDS`,  // FASTLY_DEV_SERVICE_IDS (preferred)
+        `${env.toUpperCase()}_SERVICE_IDS`,         // DEV_SERVICE_IDS (legacy fallback)
+        `SERVICE_IDS_${env.toUpperCase()}`,         // SERVICE_IDS_DEV (legacy fallback)
     ];
 
     for (const pattern of envPatterns) {
@@ -108,12 +115,11 @@ export const getDefaultKeys = (env?: Env): string[] => {
 // Get service names for display purposes (optional)
 export const getServiceNames = (env: string): string[] => {
     // Try multiple environment variable patterns for service names
+    // Prioritize FASTLY_ prefixed variables (consistent with setup system)
     const envPatterns = [
-        `FASTLY_${env.toUpperCase()}_SERVICE_NAMES`,  // FASTLY_DEV_SERVICE_NAMES
-        `FASTLY_${env.toUpperCase()}SERVICE_NAMES`,   // FASTLY_DEVSERVICE_NAMES
-        `${env.toUpperCase()}_SERVICE_NAMES`,         // DEV_SERVICE_NAMES
-        `SERVICE_NAMES_${env.toUpperCase()}`,         // SERVICE_NAMES_DEV
-        `FASTLY_SERVICES_${env.toUpperCase()}_NAMES`, // FASTLY_SERVICES_DEV_NAMES
+        `FASTLY_${env.toUpperCase()}_SERVICE_NAMES`,  // FASTLY_DEV_SERVICE_NAMES (preferred)
+        `${env.toUpperCase()}_SERVICE_NAMES`,         // DEV_SERVICE_NAMES (legacy fallback)
+        `SERVICE_NAMES_${env.toUpperCase()}`,         // SERVICE_NAMES_DEV (legacy fallback)
     ];
 
     for (const pattern of envPatterns) {

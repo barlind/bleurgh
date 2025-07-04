@@ -38,50 +38,6 @@ A powerful command-line tool for purging Fastly cache by surrogate keys across m
    bleurgh user-123 --dry-run
    ```
 
-### Team Setup (Administrators)
-
-Generate setup strings for your team using the built-in generator:
-
-```bash
-# First, set your environment variables (examples below)
-export FASTLY_DEV_SERVICE_IDS="dev-svc-1,dev-svc-2"
-export FASTLY_TEST_SERVICE_IDS="test-svc-1,test-svc-2" 
-export FASTLY_PROD_SERVICE_IDS="prod-svc-1,prod-svc-2"
-export FASTLY_DEFAULT_KEYS="global,always"
-
-# Optionally add friendly names for your ids
-export FASTLY_DEV_SERVICE_NAMES="www-dev,backend-dev"
-export FASTLY_TEST_SERVICE_NAMES="www-test,backend-test" 
-export FASTLY_PROD_SERVICE_NAMES="www,backend"
-
-# Generate setup string from your current environment
-node -e "
-const { generateSetupString } = require('./dist/setup.js');
-
-// Generate setup with all currently set FASTLY_* environment variables
-generateSetupString();
-
-// Or specify which environment variables to export
-// generateSetupString(['FASTLY_DEV_SERVICE_IDS', 'FASTLY_TEST_SERVICE_IDS']);
-
-// Or include custom environment variable names (any keys)
-// generateSetupString(['FASTLY_STAGE_SERVICE_IDS', 'FASTLY_QA_SERVICE_IDS']);
-"
-
-**Security Note**: The `generateSetupString()` function **never** includes `FASTLY_TOKEN` in setup strings for security. Recipients must set their own tokens separately.
-
-Share the generated base64 string with your team:
-```bash
-# Team members run this:
-bleurgh --setup <base64-string>
-
-# Team members also need to set their own token:
-export FASTLY_TOKEN="their-individual-token"
-
-# Or for automatic setup:
-bleurgh --setup <base64-string> --allow-execution
-```
-
 ## Installation Options
 
 ### Global Installation (Recommended)
@@ -220,6 +176,50 @@ bleurgh --all --services emergency-svc --verbose
 | `--version` | | Show version number | |
 
 ---
+
+### Team Setup (Administrators)
+
+Generate setup strings for your team using the built-in generator:
+
+```bash
+# First, set your environment variables (examples below)
+export FASTLY_DEV_SERVICE_IDS="dev-svc-1,dev-svc-2"
+export FASTLY_TEST_SERVICE_IDS="test-svc-1,test-svc-2" 
+export FASTLY_PROD_SERVICE_IDS="prod-svc-1,prod-svc-2"
+export FASTLY_DEFAULT_KEYS="global,always"
+
+# Optionally add friendly names for your ids
+export FASTLY_DEV_SERVICE_NAMES="www-dev,backend-dev"
+export FASTLY_TEST_SERVICE_NAMES="www-test,backend-test" 
+export FASTLY_PROD_SERVICE_NAMES="www,backend"
+
+# Generate setup string from your current environment
+node -e "
+const { generateSetupString } = require('./dist/setup.js');
+
+// Generate setup with all currently set FASTLY_* environment variables
+generateSetupString();
+
+// Or specify which environment variables to export
+// generateSetupString(['FASTLY_DEV_SERVICE_IDS', 'FASTLY_TEST_SERVICE_IDS']);
+
+// Or include custom environment variable names (any keys)
+// generateSetupString(['FASTLY_STAGE_SERVICE_IDS', 'FASTLY_QA_SERVICE_IDS']);
+"
+
+**Security Note**: The `generateSetupString()` function **never** includes `FASTLY_TOKEN` in setup strings for security. Recipients must set their own tokens separately.
+
+Share the generated base64 string with your team:
+```bash
+# Team members run this:
+bleurgh --setup <base64-string>
+
+# Team members also need to set their own token:
+export FASTLY_TOKEN="their-individual-token"
+
+# Or for automatic setup:
+bleurgh --setup <base64-string> --allow-execution
+```
 
 ## Detailed Documentation
 
@@ -645,7 +645,9 @@ MIT
 
 ## Changelog
 
-### v1.3.0
+### v1.2.0 
+- **IMPROVED**: Setup UX, default key handling
+### v1.1.6
 - **NEW**: URL purge support - automatically detects URLs starting with `https://` and purges them globally
 - **IMPROVED**: URL purging is now global across Fastly's network, not per-service, for better efficiency
 - **IMPROVED**: Enhanced logging for URL purges to clarify global scope
@@ -654,7 +656,7 @@ MIT
 - **TECHNICAL**: Added comprehensive test coverage for URL purge functionality
 - **UPDATED**: CLI help and documentation to clarify URL purge behavior
 
-### v1.2.0
+### v1.1.5
 - **NEW**: Complete cache purge with `--all` flag - purges entire cache for services without requiring specific keys
 - **NEW**: Enhanced CLI validation - prevents using `--all` with specific keys for safety
 - **NEW**: Updated help documentation to include complete cache purge examples
