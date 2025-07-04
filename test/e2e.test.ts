@@ -23,6 +23,9 @@ describe('End-to-End Integration Tests', () => {
     delete process.env.FASTLY_TEST_SERVICE_IDS;
     delete process.env.FASTLY_PROD_SERVICE_IDS;
     delete process.env.FASTLY_DEFAULT_KEYS;
+    delete process.env.FASTLY_DEV_DEFAULT_KEYS;
+    delete process.env.FASTLY_TEST_DEFAULT_KEYS;
+    delete process.env.FASTLY_PROD_DEFAULT_KEYS;
     delete process.env.DEV_SERVICE_IDS;
     delete process.env.SERVICE_IDS_DEV;
     delete process.env.FASTLY_SERVICES_DEV;

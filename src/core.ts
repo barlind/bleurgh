@@ -33,11 +33,13 @@ export const getSetupStatus = () => {
     const hasToken = !!process.env.FASTLY_TOKEN;
     const hasDevServices = getServiceIds('dev', undefined, false).length > 0;
     const hasDefaultKeys = !!process.env.FASTLY_DEFAULT_KEYS;
+    const hasDevDefaultKeys = !!process.env.FASTLY_DEV_DEFAULT_KEYS;
     
     return {
         hasToken,
         hasDevServices,
         hasDefaultKeys,
+        hasDevDefaultKeys,
         isComplete: hasToken && hasDevServices
     };
 };
@@ -82,11 +84,23 @@ export const getServiceIds = (env: Env, servicesOverride?: string, throwOnEmpty 
 };
 
 // Get default keys with environment variable support
-export const getDefaultKeys = (): string[] => {
+// First checks for environment-specific keys (FASTLY_{ENV}_DEFAULT_KEYS), 
+// then falls back to global keys (FASTLY_DEFAULT_KEYS)
+export const getDefaultKeys = (env?: Env): string[] => {
+    // If environment is specified, check for environment-specific default keys first
+    if (env) {
+        const envSpecificKeys = process.env[`FASTLY_${env.toUpperCase()}_DEFAULT_KEYS`];
+        if (envSpecificKeys) {
+            return envSpecificKeys.split(',').map((key: string) => key.trim()).filter(Boolean);
+        }
+    }
+    
+    // Fall back to global default keys
     const defaultKeysEnv = process.env.FASTLY_DEFAULT_KEYS;
     if (defaultKeysEnv) {
         return defaultKeysEnv.split(',').map((key: string) => key.trim()).filter(Boolean);
     }
+    
     // No hardcoded fallback - return empty array if not configured
     return [];
 };
@@ -336,7 +350,7 @@ function logOperationDetails(
     } else if (options.url) {
         logger.info(`Operation: Purge URL - ${userKeys[0]}`);
     } else {
-        const defaultKeys = getDefaultKeys();
+        const defaultKeys = getDefaultKeys(options.env);
         const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...userKeys] : userKeys;
         
         logger.info(`User keys: ${userKeys.join(', ')}`);
@@ -369,7 +383,7 @@ async function executePurgeOperations(
         ]);
         return result;
     } else {
-        const defaultKeys = getDefaultKeys();
+        const defaultKeys = getDefaultKeys(options.env);
         const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...userKeys] : userKeys;
         
         return Promise.allSettled(
@@ -443,7 +457,7 @@ function logSuccessResult(
     const idSuffix = result.id ? ` (ID: ${result.id})` : '';
     
     if (options.dryRun) {
-        logDryRunResult(logger, serviceId, result, options, userKeys);
+        logDryRunResult(logger, serviceId, result, options, userKeys, options.env);
     } else {
         logActualResult(logger, serviceId, result, options, userKeys, idSuffix);
     }
@@ -455,7 +469,8 @@ function logDryRunResult(
     serviceId: string,
     result: PurgeResult,
     options: PurgeOptions,
-    userKeys?: string[]
+    userKeys?: string[],
+    env?: Env
 ): void {
     if (result.status === 'dry-run-all' || options.all) {
         logger.info(`[${serviceId}] Would purge ALL cache`);
@@ -468,7 +483,7 @@ function logDryRunResult(
         }
     } else {
         // We need to reconstruct the keys for dry run logging
-        const defaultKeys = getDefaultKeys();
+        const defaultKeys = getDefaultKeys(env);
         const allKeys = defaultKeys.length > 0 ? [...defaultKeys, ...(userKeys || [])] : userKeys || [];
         logger.info(`[${serviceId}] Would purge keys: ${allKeys.join(', ')}`);
     }

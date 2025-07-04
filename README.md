@@ -170,7 +170,8 @@ bleurgh user-123 --services svc-1,svc-2,svc-3
 - `FASTLY_DEV_SERVICE_NAMES`: Development service friendly names (comma-separated, optional)
 - `FASTLY_TEST_SERVICE_NAMES`: Test service friendly names (comma-separated, optional)  
 - `FASTLY_PROD_SERVICE_NAMES`: Production service friendly names (comma-separated, optional)
-- `FASTLY_DEFAULT_KEYS`: Default cache keys (comma-separated, optional)
+- `FASTLY_DEFAULT_KEYS`: Global default cache keys (comma-separated, optional)
+- `FASTLY_{ENV}_DEFAULT_KEYS`: Environment-specific default keys (optional, overrides global)
 
 **Alternative patterns supported**: `DEV_SERVICE_IDS`, `SERVICE_IDS_DEV`, `FASTLY_SERVICES_DEV`
 **Service names patterns**: `DEV_SERVICE_NAMES`, `SERVICE_NAMES_DEV`, `FASTLY_SERVICES_DEV_NAMES`
@@ -181,6 +182,10 @@ export FASTLY_TOKEN="your-fastly-api-token"
 export FASTLY_DEV_SERVICE_IDS="dev-service-1,dev-service-2"
 export FASTLY_DEV_SERVICE_NAMES="Dev Frontend,Dev API"
 export FASTLY_DEFAULT_KEYS="global,always"
+
+# Environment-specific default keys (optional)
+export FASTLY_DEV_DEFAULT_KEYS="dev-global,dev-cache"
+export FASTLY_PROD_DEFAULT_KEYS="prod-global,prod-cache,critical"
 ```
 
 ## Advanced Usage
@@ -281,7 +286,10 @@ export FASTLY_DEFAULT_KEYS="global,always,common"
 <details>
 <summary><strong>⚙️ How It Works</strong></summary>
 
-1. **Key Assembly**: Combines default keys (if configured via `FASTLY_DEFAULT_KEYS`) with your specified key(s)
+1. **Key Assembly**: Combines default keys with your specified key(s):
+   - Environment-specific keys: `FASTLY_{ENV}_DEFAULT_KEYS` (e.g., `FASTLY_DEV_DEFAULT_KEYS`)
+   - Falls back to global keys: `FASTLY_DEFAULT_KEYS`
+   - Finally your specified keys
 2. **Service Discovery**: Uses flexible environment variable patterns or `--services` override
 3. **Concurrent Purging**: Makes parallel API calls to all services
 4. **Result Reporting**: Shows success/failure status for each service
@@ -294,8 +302,26 @@ export FASTLY_DEFAULT_KEYS="global,always,common"
 
 ### Purge Keys
 
-The tool automatically includes default keys (if configured via `FASTLY_DEFAULT_KEYS`) plus your specified key(s):
+The tool automatically includes default keys plus your specified key(s):
 
+**Global defaults** (always used unless environment-specific ones are set):
+```bash
+export FASTLY_DEFAULT_KEYS="global,always"
+bleurgh user-123  # Purges: ["global", "always", "user-123"]
+```
+
+**Environment-specific defaults** (override global defaults):
+```bash
+export FASTLY_DEFAULT_KEYS="global,always"
+export FASTLY_DEV_DEFAULT_KEYS="dev-global,dev-always"
+export FASTLY_PROD_DEFAULT_KEYS="prod-global,prod-critical"
+
+bleurgh user-123 --env dev   # Purges: ["dev-global", "dev-always", "user-123"]  
+bleurgh user-123 --env prod  # Purges: ["prod-global", "prod-critical", "user-123"]
+bleurgh user-123 --env test  # Purges: ["global", "always", "user-123"] (fallback)
+```
+
+**Key assembly examples**:
 - With defaults: `bleurgh user-123` → `["global", "always", "user-123"]`
 - Without defaults: `bleurgh user-123` → `["user-123"]`
 - Multiple keys: `bleurgh key1 key2 key3` → `["global", "always", "key1", "key2", "key3"]`
@@ -558,7 +584,8 @@ POST https://api.fastly.com/service/{service_id}/purge_all
 | `DEV_SERVICE_NAMES` | ❌ | Dev service names (alternative pattern) | `Frontend,API` |
 | `SERVICE_NAMES_DEV` | ❌ | Dev service names (reverse pattern) | `Frontend,API` |
 | `FASTLY_SERVICES_DEV_NAMES` | ❌ | Dev service names (alternative pattern) | `Frontend,API` |
-| `FASTLY_DEFAULT_KEYS` | ❌ | Default purge keys (comma-separated) | `global,always` |
+| `FASTLY_DEFAULT_KEYS` | ❌ | Global default purge keys (comma-separated) | `global,always` |
+| `FASTLY_{ENV}_DEFAULT_KEYS` | ❌ | Environment-specific default keys (overrides global) | `dev-global,dev-cache` |
 
 *Note: Similar patterns work for TEST and PROD environments*
 

@@ -34,9 +34,12 @@ export function generateSetupInstructions(): string {
     instructions.push(chalk.green('✅ Development service IDs configured'));
   }
 
-  if (!status.hasDefaultKeys) {
+  if (!status.hasDefaultKeys && !status.hasDevDefaultKeys) {
     instructions.push(chalk.yellow('💡 Optional: Set default cache keys that are always purged:'));
-    instructions.push(chalk.cyan('export FASTLY_DEFAULT_KEYS="global,always,common"\n'));
+    instructions.push(chalk.cyan('export FASTLY_DEFAULT_KEYS="global,always,common"'));
+    instructions.push(chalk.cyan('# Or set environment-specific defaults:'));
+    instructions.push(chalk.cyan('export FASTLY_DEV_DEFAULT_KEYS="dev-global,dev-always"'));
+    instructions.push(chalk.cyan('export FASTLY_PROD_DEFAULT_KEYS="prod-global,prod-always"\n'));
   }
 
   instructions.push(chalk.blue('📝 Add these to your shell configuration file (~/.zshrc, ~/.bashrc, etc.)'));
@@ -145,7 +148,8 @@ export function generateAdvancedHelp(): string {
   help.push('  FASTLY_DEV_SERVICE_IDS       Development service IDs');
   help.push('  FASTLY_TEST_SERVICE_IDS      Test service IDs');
   help.push('  FASTLY_PROD_SERVICE_IDS      Production service IDs');
-  help.push('  FASTLY_DEFAULT_KEYS          Default keys always included in purge\n');
+  help.push('  FASTLY_DEFAULT_KEYS          Global default keys always included in purge');
+  help.push('  FASTLY_{ENV}_DEFAULT_KEYS    Environment-specific default keys (overrides global)\n');
   
   help.push(chalk.yellow('ENVIRONMENT SETUP:'));
   help.push('The CLI supports multiple naming patterns for service IDs:');

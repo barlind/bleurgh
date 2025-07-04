@@ -553,7 +553,10 @@ function buildConfigFromEnvironment(environmentKeysToExport?: string[]) {
     'FASTLY_TEST_SERVICE_NAMES',
     'FASTLY_PROD_SERVICE_IDS',
     'FASTLY_PROD_SERVICE_NAMES',
-    'FASTLY_DEFAULT_KEYS'
+    'FASTLY_DEFAULT_KEYS',
+    'FASTLY_DEV_DEFAULT_KEYS',
+    'FASTLY_TEST_DEFAULT_KEYS',
+    'FASTLY_PROD_DEFAULT_KEYS'
   ];
 
   const keysToExport = environmentKeysToExport ?? defaultFastlyKeys;

@@ -67,6 +67,27 @@ describe('Setup Functionality Tests', () => {
       const invalidBase64 = Buffer.from('invalid json', 'utf-8').toString('base64');
       expect(() => decodeSetupString(invalidBase64)).toThrow('Invalid setup configuration');
     });
+
+    test('should handle environment-specific default keys', () => {
+      const config = {
+        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1,dev-svc-2',
+        'FASTLY_TEST_SERVICE_IDS': 'test-svc-1,test-svc-2',
+        'FASTLY_PROD_SERVICE_IDS': 'prod-svc-1,prod-svc-2',
+        'FASTLY_DEFAULT_KEYS': 'global,always',
+        'FASTLY_DEV_DEFAULT_KEYS': 'dev-global,dev-always',
+        'FASTLY_TEST_DEFAULT_KEYS': 'test-global,test-always',
+        'FASTLY_PROD_DEFAULT_KEYS': 'prod-global,prod-always'
+      };
+
+      const encoded = encodeSetupString(config);
+      const decoded = decodeSetupString(encoded);
+
+      expect(decoded).toEqual(config);
+      expect(decoded['FASTLY_DEFAULT_KEYS']).toBe('global,always');
+      expect(decoded['FASTLY_DEV_DEFAULT_KEYS']).toBe('dev-global,dev-always');
+      expect(decoded['FASTLY_TEST_DEFAULT_KEYS']).toBe('test-global,test-always');
+      expect(decoded['FASTLY_PROD_DEFAULT_KEYS']).toBe('prod-global,prod-always');
+    });
   });
 
   describe('executeSetup', () => {

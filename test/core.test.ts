@@ -14,6 +14,9 @@ describe('Core Logic Tests', () => {
     delete process.env.FASTLY_TEST_SERVICE_IDS;
     delete process.env.FASTLY_PROD_SERVICE_IDS;
     delete process.env.FASTLY_DEFAULT_KEYS;
+    delete process.env.FASTLY_DEV_DEFAULT_KEYS;
+    delete process.env.FASTLY_TEST_DEFAULT_KEYS;
+    delete process.env.FASTLY_PROD_DEFAULT_KEYS;
     delete process.env.FASTLY_TOKEN;
     
     // Reset fetch mock
@@ -103,33 +106,66 @@ describe('Core Logic Tests', () => {
   });
 
   describe('getDefaultKeys', () => {
-    test('should use FASTLY_DEFAULT_KEYS environment variable when set', () => {
+    test('should use FASTLY_DEFAULT_KEYS environment variable when set (no env specified)', () => {
       process.env.FASTLY_DEFAULT_KEYS = 'custom1,custom2,custom3';
       const result = getDefaultKeys();
       expect(result).toEqual(['custom1', 'custom2', 'custom3']);
     });
 
+    test('should use environment-specific keys when available', () => {
+      process.env.FASTLY_DEFAULT_KEYS = 'global1,global2';
+      process.env.FASTLY_DEV_DEFAULT_KEYS = 'dev1,dev2,dev3';
+      const result = getDefaultKeys('dev');
+      expect(result).toEqual(['dev1', 'dev2', 'dev3']);
+    });
+
+    test('should fall back to global keys when environment-specific not available', () => {
+      process.env.FASTLY_DEFAULT_KEYS = 'global1,global2';
+      delete process.env.FASTLY_DEV_DEFAULT_KEYS;
+      const result = getDefaultKeys('dev');
+      expect(result).toEqual(['global1', 'global2']);
+    });
+
+    test('should work with different environments', () => {
+      process.env.FASTLY_DEFAULT_KEYS = 'global1,global2';
+      process.env.FASTLY_TEST_DEFAULT_KEYS = 'test1,test2';
+      process.env.FASTLY_PROD_DEFAULT_KEYS = 'prod1,prod2';
+      
+      expect(getDefaultKeys('test')).toEqual(['test1', 'test2']);
+      expect(getDefaultKeys('prod')).toEqual(['prod1', 'prod2']);
+      expect(getDefaultKeys('dev')).toEqual(['global1', 'global2']); // falls back
+    });
+
     test('should trim whitespace from environment variable keys', () => {
-      process.env.FASTLY_DEFAULT_KEYS = ' key1 , key2 , key3 ';
-      const result = getDefaultKeys();
+      process.env.FASTLY_DEV_DEFAULT_KEYS = ' key1 , key2 , key3 ';
+      const result = getDefaultKeys('dev');
       expect(result).toEqual(['key1', 'key2', 'key3']);
     });
 
     test('should filter out empty keys from environment variable', () => {
-      process.env.FASTLY_DEFAULT_KEYS = 'key1,,key2,   ,key3';
-      const result = getDefaultKeys();
+      process.env.FASTLY_DEV_DEFAULT_KEYS = 'key1,,key2,   ,key3';
+      const result = getDefaultKeys('dev');
       expect(result).toEqual(['key1', 'key2', 'key3']);
     });
 
-    test('should return empty array when environment variable is not set', () => {
-      const result = getDefaultKeys();
+    test('should return empty array when no environment variables are set', () => {
+      delete process.env.FASTLY_DEFAULT_KEYS;
+      delete process.env.FASTLY_DEV_DEFAULT_KEYS;
+      const result = getDefaultKeys('dev');
       expect(result).toEqual([]);
     });
 
     test('should return empty array when environment variable is empty', () => {
-      process.env.FASTLY_DEFAULT_KEYS = '';
-      const result = getDefaultKeys();
+      process.env.FASTLY_DEV_DEFAULT_KEYS = '';
+      const result = getDefaultKeys('dev');
       expect(result).toEqual([]);
+    });
+
+    test('should maintain backward compatibility when no env specified', () => {
+      process.env.FASTLY_DEFAULT_KEYS = 'compat1,compat2';
+      process.env.FASTLY_DEV_DEFAULT_KEYS = 'dev1,dev2';
+      const result = getDefaultKeys(); // no env specified
+      expect(result).toEqual(['compat1', 'compat2']);
     });
   });
 
