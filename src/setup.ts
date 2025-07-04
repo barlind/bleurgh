@@ -367,17 +367,103 @@ function getShellConfigPath(): string {
   return path.join(home, '.bashrc');
 }
 
-// Check if environment variables are already set
-function checkExistingSetup(): { hasSetup: boolean; existingVars: string[] } {
-  // Check for any FASTLY_* environment variables
+// Check if environment variables are already set and analyze what would change
+function analyzeSetupChanges(config: SetupConfig): {
+  hasExisting: boolean;
+  existingVars: string[];
+  newVars: Array<{ key: string; value: string }>;
+  changedVars: Array<{ key: string; oldValue: string; newValue: string }>;
+  unchangedVars: Array<{ key: string; value: string }>;
+} {
   const existingVars = Object.keys(process.env).filter(key => 
-    key.startsWith('FASTLY_') && process.env[key]
+    key.startsWith('FASTLY_') && process.env[key] && 
+    !key.startsWith('FASTLY_TOKEN') && !key.startsWith('FASTLY_API_') && !key.startsWith('FASTLY_KEY_')
   );
   
+  const newVars: Array<{ key: string; value: string }> = [];
+  const changedVars: Array<{ key: string; oldValue: string; newValue: string }> = [];
+  const unchangedVars: Array<{ key: string; value: string }> = [];
+
+  for (const [key, newValue] of Object.entries(config)) {
+    if (!newValue) continue;
+    
+    const existingValue = process.env[key];
+    if (!existingValue) {
+      newVars.push({ key, value: newValue });
+    } else if (existingValue !== newValue) {
+      changedVars.push({ key, oldValue: existingValue, newValue });
+    } else {
+      unchangedVars.push({ key, value: newValue });
+    }
+  }
+
   return {
-    hasSetup: existingVars.length > 0,
-    existingVars
+    hasExisting: existingVars.length > 0,
+    existingVars,
+    newVars,
+    changedVars,
+    unchangedVars
   };
+}
+
+// Display colored diff of changes
+function displaySetupDiff(
+  analysis: ReturnType<typeof analyzeSetupChanges>,
+  logger: Logger,
+  allowExecution: boolean
+): void {
+  // Try to use chalk for colors, but fallback gracefully in test environments
+  let chalk: any = null;
+  try {
+    // Use require for compatibility with Jest
+    chalk = require('chalk');
+  } catch {
+    // Fallback to no colors if chalk isn't available
+    chalk = {
+      green: (text: string) => text,
+      red: (text: string) => text,
+      dim: (text: string) => text
+    };
+  }
+  
+  if (analysis.newVars.length > 0) {
+    logger.info('📝 New environment variables to be set:');
+    analysis.newVars.forEach(({ key, value }) => {
+      logger.info(chalk.green(`  + ${key}="${value}"`));
+    });
+    logger.info('');
+  }
+
+  if (analysis.changedVars.length > 0) {
+    logger.warn('🔄 Environment variables that would be changed:');
+    analysis.changedVars.forEach(({ key, oldValue, newValue }) => {
+      logger.info(chalk.red(`  - ${key}="${oldValue}"`));
+      logger.info(chalk.green(`  + ${key}="${newValue}"`));
+    });
+    logger.info('');
+  }
+
+  if (analysis.unchangedVars.length > 0) {
+    logger.info('✅ Environment variables that would remain unchanged:');
+    analysis.unchangedVars.forEach(({ key, value }) => {
+      logger.info(chalk.dim(`    ${key}="${value}"`));
+    });
+    logger.info('');
+  }
+
+  // Different messaging based on execution mode
+  if (allowExecution) {
+    if (analysis.changedVars.length > 0) {
+      logger.warn('⚠️  Some environment variables would be overwritten.');
+      logger.info('Use --force to proceed with automatic setup, or');
+      logger.info('copy the new/changed variables manually to avoid conflicts.');
+    } else {
+      logger.info('💡 Only new variables would be added. No existing variables would be changed.');
+    }
+  } else {
+    logger.info('💡 Copy the new and changed variables above to your terminal or shell config.');
+    logger.info('Skip any variables you want to keep at their current values.');
+  }
 }
 
 // Generate shell export commands
@@ -453,22 +539,30 @@ export async function executeSetup(
     process.exit(1);
   }
 
-  // Check existing setup
-  const { hasSetup, existingVars } = checkExistingSetup();
+  // Analyze what would change
+  const analysis = analyzeSetupChanges(config);
 
-  if (hasSetup && !options.force) {
-    logger.warn('Environment variables already detected:');
-    existingVars.forEach(varName => {
-      const value = process.env[varName];
-      const maskedValue = varName === 'FASTLY_TOKEN'
-        ? `${value?.substring(0, 8)}...`
-        : value;
-      logger.info(`  ${varName}=${maskedValue}`);
-    });
+  if (analysis.hasExisting && !options.force && analysis.changedVars.length > 0) {
+    logger.warn('🔍 Analyzing current environment setup...');
     logger.info('');
-    logger.info('Use --force to override existing configuration');
-    logger.info('Or manually check your shell configuration files');
+    
+    await displaySetupDiff(analysis, logger, options.allowExecution);
+    
+    if (options.allowExecution) {
+      logger.info('');
+      logger.info('Use --force to proceed with automatic setup and overwrite conflicts.');
+    }
+    
+    logger.info('');
     return;
+  }
+
+  // If there are existing vars but no conflicts, show the diff but proceed
+  if (analysis.hasExisting && analysis.changedVars.length === 0) {
+    logger.info('🔍 Analyzing current environment setup...');
+    logger.info('');
+    await displaySetupDiff(analysis, logger, options.allowExecution);
+    logger.info('');
   }
 
   // Generate export commands

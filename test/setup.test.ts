@@ -103,20 +103,21 @@ describe('Setup Functionality Tests', () => {
       expect(mockLogger.info).toHaveBeenCalledWith('📋 Copy and paste the following commands to your terminal:');
     });
 
-    test('should detect existing environment variables', async () => {
-      // Set existing environment variable
-      process.env.FASTLY_TOKEN = 'existing-token';
+    test('should detect existing environment variables and show diff', async () => {
+      // Set existing environment variable (non-token)
+      process.env.FASTLY_DEV_SERVICE_IDS = 'existing-service';
 
       const config = {
-        'FASTLY_DEV_SERVICE_IDS': 'dev-svc-1,dev-svc-2'
+        'FASTLY_DEV_SERVICE_IDS': 'new-service1,new-service2',
+        'FASTLY_TEST_SERVICE_IDS': 'test-service1'
       };
       const encoded = encodeSetupString(config);
 
       await executeSetup(encoded, { allowExecution: false, force: false }, mockLogger);
 
-      expect(mockLogger.warn).toHaveBeenCalledWith('Environment variables already detected:');
-      expect(mockLogger.info).toHaveBeenCalledWith('  FASTLY_TOKEN=existing...'); // Should be masked
-      expect(mockLogger.info).toHaveBeenCalledWith('Use --force to override existing configuration');
+      expect(mockLogger.warn).toHaveBeenCalledWith('🔍 Analyzing current environment setup...');
+      expect(mockLogger.warn).toHaveBeenCalledWith('🔄 Environment variables that would be changed:');
+      expect(mockLogger.info).toHaveBeenCalledWith('💡 Copy the new and changed variables above to your terminal or shell config.');
     });
 
     test('should proceed with force option when variables exist', async () => {
