@@ -139,6 +139,9 @@ export function generateQuickStartExamples(): string {
   examples.push(chalk.cyan('# Override service IDs'));
   examples.push('bleurgh user-123 --services "custom-svc-1,custom-svc-2"\n');
 
+  examples.push(chalk.cyan('# List available Fastly services'));
+  examples.push('bleurgh --list\n');
+
   examples.push(chalk.dim('💡 Use --help-advanced for full documentation'));
   examples.push(chalk.dim('💡 Run without installing: npx bleurgh <command>'));
 
@@ -178,6 +181,7 @@ export function generateAdvancedHelp(): string {
   help.push(chalk.yellow('OPTIONS:'));
   help.push('  --all                Purge ALL cache for services (ignores keys and defaults)');
   help.push('  --env <env>          Target environment: dev, test, prod (default: dev)');
+  help.push('  --list               List available Fastly services and their environments');
   help.push('  --services <ids>     Override service IDs (comma-separated)');
   help.push('  --dry-run            Show what would be purged without actually doing it');
   help.push('  --verbose            Enable verbose logging');

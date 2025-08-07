@@ -118,6 +118,9 @@ bleurgh user-123 --dry-run
 
 # Override service IDs directly
 bleurgh user-123 --services svc-1,svc-2,svc-3
+
+# List available Fastly services and their environments
+bleurgh --list
 ```
 
 ## Configuration
@@ -175,6 +178,7 @@ bleurgh --all --services emergency-svc --verbose
 |--------|-------|-------------|---------|
 | `--all` | | Purge ALL cache for services (ignores keys and defaults) | `false` |
 | `--env` | `-e` | Target environment (dev\|test\|prod) | `dev` |
+| `--list` | `-l` | List available Fastly services and environments | `false` |
 | `--services` | `-s` | Comma-separated service IDs (overrides environment) | |
 | `--verbose` | `-v` | Enable verbose logging | `false` |
 | `--dry-run` | `-d` | Preview operation without purging | `false` |
@@ -263,6 +267,7 @@ export FASTLY_DEV_SERVICE_NAMES="Frontend Service,API Service,Worker Service"
 **Important notes about service names:**
 - Service names are purely cosmetic and used only for logging
 - They should match the order of service IDs (1st name = 1st ID, etc.)
+- You can use `bleurgh --list` to see all available services and their environments
 - If names and IDs don't match up perfectly, the tool gracefully handles mismatches
 - Missing names will fall back to showing just the service ID
 - Extra names beyond the number of IDs are ignored
@@ -362,6 +367,9 @@ bleurgh https://example.com/page extra-key another-key
 ### Development Workflow
 
 ```bash
+# List available services and their environments
+bleurgh --list
+
 # Preview changes in dev
 bleurgh feature-xyz --dry-run --verbose
 
@@ -652,6 +660,7 @@ MIT
 ## Changelog
 
 ### v1.2.0 
+- **NEW**: Added `--list` command to show available Fastly services and their environments
 - **IMPROVED**: Setup UX, default key handling
 ### v1.1.6
 - **NEW**: URL purge support - automatically detects URLs starting with `https://` and purges them globally

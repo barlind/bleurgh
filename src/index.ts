@@ -3,7 +3,7 @@
 import yargs from 'yargs';
 import { hideBin } from 'yargs/helpers';
 import process from 'node:process';
-import { executePurge, Logger, Env as CoreEnv } from './core.js';
+import { executePurge, Logger, Env as CoreEnv, FastlyService, listServices } from './core.js';
 import { executeSetup } from './setup.js';
 import { 
   generateContextualHelp, 
@@ -25,9 +25,15 @@ interface CliArgs {
   help?: boolean;
   'help-advanced'?: boolean;
   all?: boolean;
+  list?: boolean;
 }
 
 // Enhanced logging with colorized output
+// Utility function for padding strings in table output
+const padEnd = (str: string, len: number): string => {
+  return str.length > len ? str.slice(0, len) : str.padEnd(len);
+};
+
 const log: Logger = {
   info: (message: string) => console.log(`ℹ️  ${message}`),
   success: (message: string) => console.log(`✅ ${message}`),
@@ -97,7 +103,39 @@ const argv = yargs(hideBin(process.argv))
 // Main execution
 async function main() {
   try {
-    // Check for help flags first
+    // Handle --list option first
+    if (argv.list) {
+      const services = await listServices(log);
+      if (services.length > 0) {
+        console.log('\nAvailable Fastly Services:');
+        console.log('=========================');
+        
+        // Calculate column widths
+        const nameWidth = Math.max(...services.map(s => s.name.length), 'Service Name'.length);
+        const idWidth = Math.max(...services.map(s => s.id.length), 'Service ID'.length);
+        
+        // Print header
+        console.log(
+          `${padEnd('Service Name', nameWidth)} | ` +
+          `${padEnd('Service ID', idWidth)} | ` +
+          'Environments'
+        );
+        console.log('-'.repeat(nameWidth + idWidth + 20));
+        
+        // Print services
+        services.forEach(service => {
+          console.log(
+            `${padEnd(service.name, nameWidth)} | ` +
+            `${padEnd(service.id, idWidth)} | ` +
+            `${service.envs.length > 0 ? service.envs.join(', ') : ''}`
+          );
+        });
+        console.log(); // Empty line at end
+      }
+      return;
+    }
+    
+    // Check for help flags next
     if (argv.help || argv['help-advanced'] || shouldShowSetupGuidance(process.argv)) {
       console.log(generateContextualHelp({ 
         showAdvanced: argv['help-advanced'] 

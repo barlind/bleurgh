@@ -6,6 +6,12 @@ export interface PurgeResult {
     service_id: string;
 }
 
+export interface FastlyService {
+    id: string;
+    name: string;
+    envs: string[];
+}
+
 export interface PurgeOptions {
     env: Env;
     services?: string;
@@ -13,6 +19,7 @@ export interface PurgeOptions {
     dryRun?: boolean;
     all?: boolean;
     url?: boolean;
+    list?: boolean;
 }
 
 export interface Logger {
@@ -29,6 +36,51 @@ export const hasBasicSetup = (): boolean => {
 };
 
 // Get setup status details for user guidance
+export const listServices = async (logger: Logger): Promise<FastlyService[]> => {
+    if (!process.env.FASTLY_TOKEN) {
+        logger.error('No Fastly API token found. Please run --setup first.');
+        return [];
+    }
+    
+    try {
+        const response = await fetch('https://api.fastly.com/service', {
+            headers: {
+                'Fastly-Key': process.env.FASTLY_TOKEN,
+                'Accept': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Failed to fetch services: ${response.statusText}`);
+        }
+        
+        const services = await response.json();
+        
+        // Map each service to include which environments it's used in
+        return services.map((service: any) => {
+            const envs: string[] = [];
+            
+            // Check each environment's service IDs
+            const devIds = getServiceIds('dev', undefined, false);
+            const testIds = getServiceIds('test', undefined, false);
+            const prodIds = getServiceIds('prod', undefined, false);
+            
+            if (devIds.includes(service.id)) envs.push('dev');
+            if (testIds.includes(service.id)) envs.push('test');
+            if (prodIds.includes(service.id)) envs.push('prod');
+            
+            return {
+                id: service.id,
+                name: service.name,
+                envs
+            };
+        });
+    } catch (error) {
+        logger.error(`Failed to list services: ${error instanceof Error ? error.message : String(error)}`);
+        return [];
+    }
+};
+
 export const getSetupStatus = () => {
     const hasToken = !!process.env.FASTLY_TOKEN;
     const hasDevServices = getServiceIds('dev', undefined, false).length > 0;

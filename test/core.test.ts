@@ -1,9 +1,17 @@
-import { getServiceIds, getDefaultKeys, purgeService, executePurge, Logger, purgeAllService, purgeUrlService, isUrlPurge } from '../src/core';
+import { getServiceIds, getDefaultKeys, purgeService, executePurge, Logger, purgeAllService, purgeUrlService, isUrlPurge, listServices } from '../src/core';
 
 // Mock fetch globally
 global.fetch = jest.fn();
 
 describe('Core Logic Tests', () => {
+  // Mock logger for testing
+  const mockLogger: Logger = {
+    info: jest.fn(),
+    success: jest.fn(),
+    error: jest.fn(),
+    warn: jest.fn(),
+    debug: jest.fn()
+  };
   beforeEach(() => {
     // Clear all environment variables before each test
     delete process.env.FASTLY_DEV_SERVICE_IDS;
@@ -88,6 +96,72 @@ describe('Core Logic Tests', () => {
       process.env.FASTLY_DEV_SERVICE_IDS = 'service1,,service2,   ,service3';
       const result = getServiceIds('dev');
       expect(result).toEqual(['service1', 'service2', 'service3']);
+    });
+  });
+
+  describe('listServices', () => {
+    test('should return empty array when no token is set', async () => {
+      delete process.env.FASTLY_TOKEN;
+      const result = await listServices(mockLogger);
+      expect(result).toEqual([]);
+      expect(mockLogger.error).toHaveBeenCalledWith('No Fastly API token found. Please run --setup first.');
+    });
+
+    test('should fetch and map services with environment information', async () => {
+      process.env.FASTLY_TOKEN = 'test-token';
+      process.env.FASTLY_DEV_SERVICE_IDS = 'service1,service2';
+      process.env.FASTLY_TEST_SERVICE_IDS = 'service2,service3';
+      process.env.FASTLY_PROD_SERVICE_IDS = 'service3';
+
+      const mockServices = [
+        { id: 'service1', name: 'Service One' },
+        { id: 'service2', name: 'Service Two' },
+        { id: 'service3', name: 'Service Three' },
+        { id: 'service4', name: 'Service Four' }
+      ];
+
+      (global.fetch as jest.Mock).mockImplementationOnce(() => 
+        Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockServices)
+        })
+      );
+
+      const result = await listServices(mockLogger);
+      
+      expect(result).toEqual([
+        { id: 'service1', name: 'Service One', envs: ['dev'] },
+        { id: 'service2', name: 'Service Two', envs: ['dev', 'test'] },
+        { id: 'service3', name: 'Service Three', envs: ['test', 'prod'] },
+        { id: 'service4', name: 'Service Four', envs: [] }
+      ]);
+
+      expect(global.fetch).toHaveBeenCalledWith('https://api.fastly.com/service', {
+        headers: {
+          'Fastly-Key': 'test-token',
+          'Accept': 'application/json'
+        }
+      });
+    });
+
+    test('should handle API errors gracefully', async () => {
+      // Clear mock calls from previous tests
+      (mockLogger.error as jest.Mock).mockClear();
+      
+      process.env.FASTLY_TOKEN = 'test-token';
+      
+      (global.fetch as jest.Mock).mockImplementationOnce(() => 
+        Promise.resolve({
+          ok: false,
+          statusText: 'Unauthorized'
+        })
+      );
+
+      const result = await listServices(mockLogger);
+      
+      expect(result).toEqual([]);
+      expect(mockLogger.error).toHaveBeenCalledTimes(1);
+      expect(mockLogger.error).toHaveBeenCalledWith('Failed to list services: Failed to fetch services: Unauthorized');
     });
   });
 
