@@ -5,6 +5,7 @@ import { hideBin } from 'yargs/helpers';
 import process from 'node:process';
 import { executePurge, Logger, Env as CoreEnv, FastlyService, listServices } from './core.js';
 import { executeSetup } from './setup.js';
+import { selectFastlyServices } from './interactive.js';
 import { 
   generateContextualHelp, 
   shouldShowSetupGuidance,
@@ -26,6 +27,7 @@ interface CliArgs {
   'help-advanced'?: boolean;
   all?: boolean;
   list?: boolean;
+  interactive?: boolean;
 }
 
 // Enhanced logging with colorized output
@@ -59,6 +61,12 @@ const argv = yargs(hideBin(process.argv))
     alias: 's',
     type: 'string',
     describe: 'Override service IDs (comma-separated)'
+  })
+  .option('interactive', {
+    alias: 'i',
+    type: 'boolean',
+    default: false,
+    describe: 'Select services interactively using the Fastly CLI'
   })
   .option('verbose', {
     alias: 'v',
@@ -166,9 +174,17 @@ async function main() {
       process.exit(1);
     }
     
+    if (argv.interactive && argv.services) {
+      throw new Error('Cannot use --interactive with --services');
+    }
+
+    const selectedServices = argv.interactive
+      ? await selectFastlyServices()
+      : undefined;
+
     const options = {
       env: argv.env,
-      services: argv.services,
+      services: selectedServices?.join(',') ?? argv.services,
       verbose: argv.verbose,
       dryRun: argv['dry-run'],
       all: argv.all

@@ -4,7 +4,7 @@
 [![Security](https://github.com/barlind/bleurgh/workflows/Security/badge.svg)](https://github.com/barlind/bleurgh/actions/workflows/security.yml)
 [![npm version](https://badge.fury.io/js/bleurgh.svg)](https://badge.fury.io/js/bleurgh)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D20.12.0-brightgreen.svg)](https://nodejs.org/)
 
 A powerful command-line tool for purging Fastly cache by surrogate keys across multiple environments and services.
 
@@ -14,6 +14,7 @@ A powerful command-line tool for purging Fastly cache by surrogate keys across m
 - 🔧 **Dynamic service discovery**: Multiple environment variable patterns supported
 - �️ **Friendly service names**: Optional display names for better logging and team clarity
 - �🎯 **Direct service override**: Use `--services` to specify service IDs directly
+- **Interactive service selection**: Use `-i` to choose services returned by the Fastly CLI
 - 📝 **Multiple key support**: Purge multiple cache keys in a single command
 - 🔄 **Batch purging**: Purge multiple services simultaneously
 - � **Complete purge**: Use `--all` flag to purge entire cache for services
@@ -119,9 +120,14 @@ bleurgh user-123 --dry-run
 # Override service IDs directly
 bleurgh user-123 --services svc-1,svc-2,svc-3
 
+# Select one or more recently updated services interactively
+bleurgh user-123 -i
+
 # List available Fastly services and their environments
 bleurgh --list
 ```
+
+Interactive mode requires Node.js 20.12 or newer and an installed and authenticated [Fastly CLI](https://www.fastly.com/documentation/reference/tools/cli/). It lists services with `fastly service list --sort="updated" --direction="descend"`. Type to filter the list, use Space to select services, and press Enter to purge them.
 
 ## Configuration
 
@@ -180,6 +186,7 @@ bleurgh --all --services emergency-svc --verbose
 | `--env` | `-e` | Target environment (dev\|test\|prod) | `dev` |
 | `--list` | `-l` | List available Fastly services and environments | `false` |
 | `--services` | `-s` | Comma-separated service IDs (overrides environment) | |
+| `--interactive` | `-i` | Select services interactively using the Fastly CLI | `false` |
 | `--verbose` | `-v` | Enable verbose logging | `false` |
 | `--dry-run` | `-d` | Preview operation without purging | `false` |
 | `--help` | `-h` | Show help information | |
@@ -658,6 +665,16 @@ The CLI automatically detects and prevents:
 MIT
 
 ## Changelog
+
+### v1.3.1
+- **NEW**: Interactive mode - choose the services from a list (requires fastly cli) 
+- **NEW**: URL purge support - automatically detects URLs starting with https:// and purges them globally
+- **IMPROVED**: URL purging is now global across Fastly's network, not per-service, for better efficiency
+- **IMPROVED**: Enhanced logging for URL purges to clarify global scope
+- **IMPROVED**: Better validation and warnings when URL is mixed with other keys (ignores extra keys)
+- **TECHNICAL**: Optimized URL purge operations to make only one API call regardless of configured services
+- **TECHNICAL**: Added comprehensive test coverage for URL purge functionality
+- **UPDATED**: CLI help and documentation to clarify URL purge behavior
 
 ### v1.2.0 
 - **NEW**: Added `--list` command to show available Fastly services and their environments

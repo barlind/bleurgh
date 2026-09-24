@@ -139,6 +139,9 @@ export function generateQuickStartExamples(): string {
   examples.push(chalk.cyan('# Override service IDs'));
   examples.push('bleurgh user-123 --services "custom-svc-1,custom-svc-2"\n');
 
+  examples.push(chalk.cyan('# Select services interactively'));
+  examples.push('bleurgh user-123 --interactive\n');
+
   examples.push(chalk.cyan('# List available Fastly services'));
   examples.push('bleurgh --list\n');
 
@@ -183,6 +186,7 @@ export function generateAdvancedHelp(): string {
   help.push('  --env <env>          Target environment: dev, test, prod (default: dev)');
   help.push('  --list               List available Fastly services and their environments');
   help.push('  --services <ids>     Override service IDs (comma-separated)');
+  help.push('  -i, --interactive    Select services interactively using the Fastly CLI');
   help.push('  --dry-run            Show what would be purged without actually doing it');
   help.push('  --verbose            Enable verbose logging');
   help.push('  --setup <config>     Configure environment from base64 setup string');
@@ -200,6 +204,7 @@ export function generateAdvancedHelp(): string {
   help.push('  bleurgh user-123 --env prod                # Purge in production');
   help.push('  bleurgh user-123 --dry-run                 # Test without purging');
   help.push('  bleurgh user-123 --services "svc1,svc2"    # Override services');
+  help.push('  bleurgh user-123 -i                        # Select services interactively');
   help.push('  bleurgh --setup eyJ0b2tlbjp0ZXN0fQ==       # Configure from setup string');
   help.push('  npx bleurgh user-123 --dry-run             # Run without global install\n');
   
